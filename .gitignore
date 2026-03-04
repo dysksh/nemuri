@@ -8,4 +8,4 @@ terraform.tfvars
 
 # Build artifacts
 dist/
-lambda-ingress
+/lambda-ingress
