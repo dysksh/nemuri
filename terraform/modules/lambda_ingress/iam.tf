@@ -28,3 +28,18 @@ resource "aws_iam_role_policy" "lambda_logs" {
   role   = aws_iam_role.lambda.id
   policy = data.aws_iam_policy_document.lambda_logs.json
 }
+
+data "aws_iam_policy_document" "lambda_sqs" {
+  statement {
+    actions = [
+      "sqs:SendMessage",
+    ]
+    resources = [var.sqs_queue_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "lambda_sqs" {
+  name   = "sqs-send"
+  role   = aws_iam_role.lambda.id
+  policy = data.aws_iam_policy_document.lambda_sqs.json
+}

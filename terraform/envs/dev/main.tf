@@ -21,6 +21,13 @@ provider "aws" {
   }
 }
 
+module "sqs" {
+  source = "../../modules/sqs"
+
+  project     = var.project
+  environment = var.environment
+}
+
 module "lambda_ingress" {
   source = "../../modules/lambda_ingress"
 
@@ -28,4 +35,6 @@ module "lambda_ingress" {
   environment        = var.environment
   discord_public_key = var.discord_public_key
   lambda_zip_path    = "${path.module}/../../../dist/lambda-ingress.zip"
+  sqs_queue_url      = module.sqs.queue_url
+  sqs_queue_arn      = module.sqs.queue_arn
 }

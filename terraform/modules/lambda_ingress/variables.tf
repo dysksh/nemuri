@@ -18,3 +18,13 @@ variable "lambda_zip_path" {
   description = "Path to the Lambda deployment ZIP file"
   type        = string
 }
+
+variable "sqs_queue_url" {
+  description = "SQS job queue URL"
+  type        = string
+}
+
+variable "sqs_queue_arn" {
+  description = "SQS job queue ARN"
+  type        = string
+}
