@@ -13,6 +13,10 @@ import (
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	"github.com/google/uuid"
 )
 
 // Discord interaction types
@@ -23,26 +27,53 @@ const (
 
 // Discord interaction response types
 const (
-	ResponseTypePong                        = 1
-	ResponseTypeChannelMessageWithSource    = 4
+	ResponseTypePong                             = 1
+	ResponseTypeChannelMessageWithSource         = 4
 	ResponseTypeDeferredChannelMessageWithSource = 5
 )
 
 type discordInteraction struct {
-	Type int             `json:"type"`
-	Data json.RawMessage `json:"data,omitempty"`
+	Type          int                 `json:"type"`
+	ID            string              `json:"id"`
+	Token         string              `json:"token"`
+	ApplicationID string              `json:"application_id"`
+	ChannelID     string              `json:"channel_id"`
+	Data          *discordCommandData `json:"data,omitempty"`
+}
+
+type discordCommandData struct {
+	Name    string                 `json:"name"`
+	Options []discordCommandOption `json:"options,omitempty"`
+}
+
+type discordCommandOption struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
 
 type discordResponse struct {
-	Type int                    `json:"type"`
-	Data *discordResponseData   `json:"data,omitempty"`
+	Type int                  `json:"type"`
+	Data *discordResponseData `json:"data,omitempty"`
 }
 
 type discordResponseData struct {
 	Content string `json:"content"`
 }
 
-var publicKey ed25519.PublicKey
+// SQS message payload
+type sqsJobMessage struct {
+	JobID            string `json:"job_id"`
+	Prompt           string `json:"prompt"`
+	InteractionToken string `json:"interaction_token"`
+	ChannelID        string `json:"channel_id"`
+	ApplicationID    string `json:"application_id"`
+}
+
+var (
+	publicKey   ed25519.PublicKey
+	sqsClient   *sqs.Client
+	sqsQueueURL string
+)
 
 func init() {
 	keyHex := os.Getenv("DISCORD_PUBLIC_KEY")
@@ -57,6 +88,19 @@ func init() {
 		slog.Error("failed to decode DISCORD_PUBLIC_KEY", "error", err)
 		os.Exit(1)
 	}
+
+	sqsQueueURL = os.Getenv("SQS_QUEUE_URL")
+	if sqsQueueURL == "" {
+		slog.Error("SQS_QUEUE_URL is not set")
+		os.Exit(1)
+	}
+
+	cfg, err := config.LoadDefaultConfig(context.Background())
+	if err != nil {
+		slog.Error("failed to load AWS config", "error", err)
+		os.Exit(1)
+	}
+	sqsClient = sqs.NewFromConfig(cfg)
 }
 
 func handler(ctx context.Context, req events.APIGatewayV2HTTPRequest) (events.APIGatewayV2HTTPResponse, error) {
@@ -82,18 +126,74 @@ func handler(ctx context.Context, req events.APIGatewayV2HTTPRequest) (events.AP
 		return respondJSON(http.StatusOK, discordResponse{Type: ResponseTypePong})
 
 	case InteractionTypeApplicationCommand:
-		slog.Info("received application command, responding")
-		return respondJSON(http.StatusOK, discordResponse{
-			Type: ResponseTypeChannelMessageWithSource,
-			Data: &discordResponseData{
-				Content: "受け付けました（現在未実装です）",
-			},
-		})
+		return handleApplicationCommand(ctx, interaction)
 
 	default:
 		slog.Warn("unknown interaction type", "type", interaction.Type)
 		return respond(http.StatusBadRequest, fmt.Sprintf(`{"error":"unknown interaction type: %d"}`, interaction.Type))
 	}
+}
+
+func handleApplicationCommand(ctx context.Context, interaction discordInteraction) (events.APIGatewayV2HTTPResponse, error) {
+	// Extract prompt from command options
+	prompt := extractPrompt(interaction)
+	if prompt == "" {
+		slog.Warn("no prompt provided")
+		return respondJSON(http.StatusOK, discordResponse{
+			Type: ResponseTypeChannelMessageWithSource,
+			Data: &discordResponseData{Content: "promptを指定してください。"},
+		})
+	}
+
+	// Generate job ID
+	jobID := uuid.New().String()
+
+	// Build SQS message
+	msg := sqsJobMessage{
+		JobID:            jobID,
+		Prompt:           prompt,
+		InteractionToken: interaction.Token,
+		ChannelID:        interaction.ChannelID,
+		ApplicationID:    interaction.ApplicationID,
+	}
+
+	msgBytes, err := json.Marshal(msg)
+	if err != nil {
+		slog.Error("failed to marshal SQS message", "error", err)
+		return respond(http.StatusInternalServerError, `{"error":"internal server error"}`)
+	}
+
+	// Send to SQS
+	_, err = sqsClient.SendMessage(ctx, &sqs.SendMessageInput{
+		QueueUrl:    aws.String(sqsQueueURL),
+		MessageBody: aws.String(string(msgBytes)),
+	})
+	if err != nil {
+		slog.Error("failed to send SQS message", "error", err, "job_id", jobID)
+		return respondJSON(http.StatusOK, discordResponse{
+			Type: ResponseTypeChannelMessageWithSource,
+			Data: &discordResponseData{Content: "ジョブの登録に失敗しました。しばらくしてから再度お試しください。"},
+		})
+	}
+
+	slog.Info("job enqueued", "job_id", jobID, "prompt", prompt)
+
+	// Return deferred ACK (type=5) — Discord shows "Bot is thinking..."
+	return respondJSON(http.StatusOK, discordResponse{
+		Type: ResponseTypeDeferredChannelMessageWithSource,
+	})
+}
+
+func extractPrompt(interaction discordInteraction) string {
+	if interaction.Data == nil {
+		return ""
+	}
+	for _, opt := range interaction.Data.Options {
+		if opt.Name == "prompt" {
+			return opt.Value
+		}
+	}
+	return ""
 }
 
 func getHeader(headers map[string]string, key string) string {
