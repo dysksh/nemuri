@@ -9,3 +9,5 @@ terraform.tfvars
 # Build artifacts
 dist/
 /lambda-ingress
+/lambda-runner
+/agent-engine
