@@ -49,3 +49,23 @@ variable "sqs_queue_arn" {
   description = "SQS job queue ARN"
   type        = string
 }
+
+variable "anthropic_api_key_arn" {
+  description = "ARN of the Anthropic API key secret"
+  type        = string
+}
+
+variable "anthropic_api_key_name" {
+  description = "Name of the Anthropic API key secret"
+  type        = string
+}
+
+variable "discord_bot_token_arn" {
+  description = "ARN of the Discord bot token secret"
+  type        = string
+}
+
+variable "discord_bot_token_name" {
+  description = "Name of the Discord bot token secret"
+  type        = string
+}

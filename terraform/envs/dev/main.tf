@@ -30,6 +30,15 @@ module "network" {
   environment = var.environment
 }
 
+# --- Secrets Manager ---
+
+module "secrets" {
+  source = "../../modules/secrets"
+
+  project     = var.project
+  environment = var.environment
+}
+
 # --- DynamoDB ---
 
 module "dynamodb" {
@@ -77,14 +86,18 @@ module "ecr" {
 module "ecs" {
   source = "../../modules/ecs"
 
-  project             = var.project
-  environment         = var.environment
-  aws_region          = var.aws_region
-  ecr_repository_url  = module.ecr.repository_url
-  dynamodb_table_name = module.dynamodb.table_name
-  dynamodb_table_arn  = module.dynamodb.table_arn
-  sqs_queue_url       = module.sqs.queue_url
-  sqs_queue_arn       = module.sqs.queue_arn
+  project                = var.project
+  environment            = var.environment
+  aws_region             = var.aws_region
+  ecr_repository_url     = module.ecr.repository_url
+  dynamodb_table_name    = module.dynamodb.table_name
+  dynamodb_table_arn     = module.dynamodb.table_arn
+  sqs_queue_url          = module.sqs.queue_url
+  sqs_queue_arn          = module.sqs.queue_arn
+  anthropic_api_key_arn  = module.secrets.anthropic_api_key_arn
+  anthropic_api_key_name = module.secrets.anthropic_api_key_name
+  discord_bot_token_arn  = module.secrets.discord_bot_token_arn
+  discord_bot_token_name = module.secrets.discord_bot_token_name
 }
 
 # --- Lambda Runner ---

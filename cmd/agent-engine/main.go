@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -13,15 +12,21 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/google/uuid"
 
+	"github.com/nemuri/nemuri/internal/discord"
+	"github.com/nemuri/nemuri/internal/llm"
+	"github.com/nemuri/nemuri/internal/secrets"
 	"github.com/nemuri/nemuri/internal/state"
 )
 
 const (
 	heartbeatInterval = 3 * time.Minute
 	visibilityExtend  = 10 * time.Minute // must be > heartbeatInterval
+
+	systemPrompt = "You are a helpful task automation assistant. Answer the user's request concisely."
 )
 
 func main() {
@@ -34,6 +39,8 @@ func main() {
 	sqsReceiptHandle := os.Getenv("SQS_RECEIPT_HANDLE")
 	sqsQueueURL := os.Getenv("SQS_QUEUE_URL")
 	tableName := os.Getenv("DYNAMODB_TABLE_NAME")
+	anthropicKeyName := os.Getenv("ANTHROPIC_API_KEY_SECRET_NAME")
+	discordTokenName := os.Getenv("DISCORD_BOT_TOKEN_SECRET_NAME")
 
 	slog.Info("agent-engine started", "job_id", jobID)
 
@@ -57,6 +64,22 @@ func main() {
 
 	store := state.NewStore(dynamodb.NewFromConfig(cfg), tableName)
 	sqsClient := sqs.NewFromConfig(cfg)
+	secretsClient := secrets.NewClient(secretsmanager.NewFromConfig(cfg))
+
+	// Fetch secrets
+	anthropicKey, err := secretsClient.GetSecret(ctx, anthropicKeyName)
+	if err != nil {
+		slog.Error("failed to get Anthropic API key", "error", err)
+		os.Exit(1)
+	}
+	discordToken, err := secretsClient.GetSecret(ctx, discordTokenName)
+	if err != nil {
+		slog.Error("failed to get Discord bot token", "error", err)
+		os.Exit(1)
+	}
+
+	llmClient := llm.NewClaudeClient(anthropicKey)
+	discordClient := discord.NewClient(discordToken)
 
 	workerID := uuid.New().String()
 
@@ -94,7 +117,7 @@ func main() {
 	}
 
 	// 4. Execute job logic
-	jobErr := executeJob(ctx, job)
+	jobErr := executeJob(ctx, job, llmClient, discordClient)
 
 	// 5. Stop heartbeat
 	heartbeatCancel()
@@ -106,6 +129,9 @@ func main() {
 		if err := store.MarkFailed(ctx, jobID, workerID, jobErr.Error(), job.Version, job.State); err != nil {
 			slog.Error("failed to mark job as failed", "error", err, "job_id", jobID)
 		}
+		// Notify user of failure (do not expose internal error details)
+		_ = discordClient.SendResult(ctx, job.ApplicationID, job.InteractionToken, job.ChannelID,
+			"ジョブの実行中にエラーが発生しました。管理者にお問い合わせください。(job_id: "+jobID+")")
 		os.Exit(1)
 	}
 
@@ -134,16 +160,25 @@ func main() {
 	slog.Info("agent-engine finished successfully", "job_id", jobID)
 }
 
-func executeJob(ctx context.Context, job *state.Job) error {
-	// Phase 4: placeholder — just log the prompt and simulate work
-	slog.Info("executing job",
-		"job_id", job.JobID,
-		"prompt", job.Prompt,
-		"state", job.State,
-	)
+func executeJob(ctx context.Context, job *state.Job, llmClient llm.Client, discordClient *discord.Client) error {
+	slog.Info("executing job", "job_id", job.JobID, "prompt", job.Prompt)
 
-	fmt.Println("hello from ECS")
+	// Call Claude API
+	resp, err := llmClient.SendMessage(ctx, systemPrompt, []llm.Message{
+		{Role: "user", Content: job.Prompt},
+	})
+	if err != nil {
+		return err
+	}
 
+	slog.Info("Claude response received", "job_id", job.JobID, "length", len(resp.Content))
+
+	// Send result to Discord
+	if err := discordClient.SendResult(ctx, job.ApplicationID, job.InteractionToken, job.ChannelID, resp.Content); err != nil {
+		return err
+	}
+
+	slog.Info("result sent to Discord", "job_id", job.JobID)
 	return nil
 }
 
