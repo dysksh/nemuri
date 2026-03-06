@@ -80,3 +80,23 @@ resource "aws_iam_role_policy" "ecs_task_sqs" {
   role   = aws_iam_role.ecs_task.id
   policy = data.aws_iam_policy_document.ecs_task_sqs.json
 }
+
+# --- Secrets Manager Access ---
+
+data "aws_iam_policy_document" "ecs_task_secrets" {
+  statement {
+    actions = [
+      "secretsmanager:GetSecretValue",
+    ]
+    resources = [
+      var.anthropic_api_key_arn,
+      var.discord_bot_token_arn,
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "ecs_task_secrets" {
+  name   = "secrets-access"
+  role   = aws_iam_role.ecs_task.id
+  policy = data.aws_iam_policy_document.ecs_task_secrets.json
+}

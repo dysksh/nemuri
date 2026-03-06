@@ -38,6 +38,16 @@ output "dynamodb_table_name" {
   value       = module.dynamodb.table_name
 }
 
+output "anthropic_api_key_secret_name" {
+  description = "Secrets Manager name for Anthropic API key"
+  value       = module.secrets.anthropic_api_key_name
+}
+
+output "discord_bot_token_secret_name" {
+  description = "Secrets Manager name for Discord bot token"
+  value       = module.secrets.discord_bot_token_name
+}
+
 output "vpc_id" {
   description = "VPC ID"
   value       = module.network.vpc_id
