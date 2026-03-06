@@ -30,6 +30,15 @@ module "network" {
   environment = var.environment
 }
 
+# --- DynamoDB ---
+
+module "dynamodb" {
+  source = "../../modules/dynamodb"
+
+  project     = var.project
+  environment = var.environment
+}
+
 # --- SQS ---
 
 module "sqs" {
@@ -44,12 +53,14 @@ module "sqs" {
 module "lambda_ingress" {
   source = "../../modules/lambda_ingress"
 
-  project            = var.project
-  environment        = var.environment
-  discord_public_key = var.discord_public_key
-  lambda_zip_path    = "${path.module}/../../../dist/lambda-ingress.zip"
-  sqs_queue_url      = module.sqs.queue_url
-  sqs_queue_arn      = module.sqs.queue_arn
+  project             = var.project
+  environment         = var.environment
+  discord_public_key  = var.discord_public_key
+  lambda_zip_path     = "${path.module}/../../../dist/lambda-ingress.zip"
+  sqs_queue_url       = module.sqs.queue_url
+  sqs_queue_arn       = module.sqs.queue_arn
+  dynamodb_table_name = module.dynamodb.table_name
+  dynamodb_table_arn  = module.dynamodb.table_arn
 }
 
 # --- ECR ---
@@ -66,10 +77,14 @@ module "ecr" {
 module "ecs" {
   source = "../../modules/ecs"
 
-  project            = var.project
-  environment        = var.environment
-  aws_region         = var.aws_region
-  ecr_repository_url = module.ecr.repository_url
+  project             = var.project
+  environment         = var.environment
+  aws_region          = var.aws_region
+  ecr_repository_url  = module.ecr.repository_url
+  dynamodb_table_name = module.dynamodb.table_name
+  dynamodb_table_arn  = module.dynamodb.table_arn
+  sqs_queue_url       = module.sqs.queue_url
+  sqs_queue_arn       = module.sqs.queue_arn
 }
 
 # --- Lambda Runner ---

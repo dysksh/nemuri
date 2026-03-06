@@ -15,8 +15,10 @@ import (
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/google/uuid"
+	"github.com/nemuri/nemuri/internal/state"
 )
 
 // Discord interaction types
@@ -73,6 +75,7 @@ var (
 	publicKey   ed25519.PublicKey
 	sqsClient   *sqs.Client
 	sqsQueueURL string
+	jobStore    *state.Store
 )
 
 func init() {
@@ -101,6 +104,13 @@ func init() {
 		os.Exit(1)
 	}
 	sqsClient = sqs.NewFromConfig(cfg)
+
+	dynamoTableName := os.Getenv("DYNAMODB_TABLE_NAME")
+	if dynamoTableName == "" {
+		slog.Error("DYNAMODB_TABLE_NAME is not set")
+		os.Exit(1)
+	}
+	jobStore = state.NewStore(dynamodb.NewFromConfig(cfg), dynamoTableName)
 }
 
 func handler(ctx context.Context, req events.APIGatewayV2HTTPRequest) (events.APIGatewayV2HTTPResponse, error) {
@@ -147,6 +157,22 @@ func handleApplicationCommand(ctx context.Context, interaction discordInteractio
 
 	// Generate job ID
 	jobID := uuid.New().String()
+
+	// Create job record in DynamoDB (state=INIT)
+	err := jobStore.CreateJob(ctx, state.CreateJobInput{
+		JobID:            jobID,
+		Prompt:           prompt,
+		ChannelID:        interaction.ChannelID,
+		InteractionToken: interaction.Token,
+		ApplicationID:    interaction.ApplicationID,
+	})
+	if err != nil {
+		slog.Error("failed to create job record", "error", err, "job_id", jobID)
+		return respondJSON(http.StatusOK, discordResponse{
+			Type: ResponseTypeChannelMessageWithSource,
+			Data: &discordResponseData{Content: "ジョブの登録に失敗しました。しばらくしてから再度お試しください。"},
+		})
+	}
 
 	// Build SQS message
 	msg := sqsJobMessage{

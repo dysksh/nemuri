@@ -29,3 +29,23 @@ variable "task_memory" {
   type        = string
   default     = "512"
 }
+
+variable "dynamodb_table_name" {
+  description = "DynamoDB jobs table name"
+  type        = string
+}
+
+variable "dynamodb_table_arn" {
+  description = "DynamoDB jobs table ARN"
+  type        = string
+}
+
+variable "sqs_queue_url" {
+  description = "SQS job queue URL"
+  type        = string
+}
+
+variable "sqs_queue_arn" {
+  description = "SQS job queue ARN"
+  type        = string
+}

@@ -17,8 +17,9 @@ resource "aws_lambda_function" "ingress" {
 
   environment {
     variables = {
-      DISCORD_PUBLIC_KEY = var.discord_public_key
-      SQS_QUEUE_URL      = var.sqs_queue_url
+      DISCORD_PUBLIC_KEY  = var.discord_public_key
+      SQS_QUEUE_URL       = var.sqs_queue_url
+      DYNAMODB_TABLE_NAME = var.dynamodb_table_name
     }
   }
 
