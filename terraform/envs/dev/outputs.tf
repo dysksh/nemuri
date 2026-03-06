@@ -33,6 +33,11 @@ output "ecs_task_definition_family" {
   value       = module.ecs.task_definition_family
 }
 
+output "dynamodb_table_name" {
+  description = "DynamoDB jobs table name"
+  value       = module.dynamodb.table_name
+}
+
 output "vpc_id" {
   description = "VPC ID"
   value       = module.network.vpc_id

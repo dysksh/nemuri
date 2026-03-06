@@ -33,6 +33,12 @@ resource "aws_ecs_task_definition" "agent_engine" {
       image     = "${var.ecr_repository_url}:latest"
       essential = true
 
+      environment = [
+        { name = "DYNAMODB_TABLE_NAME", value = var.dynamodb_table_name },
+        { name = "SQS_QUEUE_URL", value = var.sqs_queue_url },
+        { name = "AWS_REGION", value = var.aws_region },
+      ]
+
       logConfiguration = {
         logDriver = "awslogs"
         options = {

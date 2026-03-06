@@ -42,3 +42,41 @@ resource "aws_iam_role_policy" "ecs_task_logs" {
   role   = aws_iam_role.ecs_task.id
   policy = data.aws_iam_policy_document.ecs_task_logs.json
 }
+
+# --- DynamoDB Access ---
+
+data "aws_iam_policy_document" "ecs_task_dynamodb" {
+  statement {
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+      "dynamodb:Query",
+    ]
+    resources = [var.dynamodb_table_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "ecs_task_dynamodb" {
+  name   = "dynamodb-access"
+  role   = aws_iam_role.ecs_task.id
+  policy = data.aws_iam_policy_document.ecs_task_dynamodb.json
+}
+
+# --- SQS Access (visibility extension + delete) ---
+
+data "aws_iam_policy_document" "ecs_task_sqs" {
+  statement {
+    actions = [
+      "sqs:ChangeMessageVisibility",
+      "sqs:DeleteMessage",
+    ]
+    resources = [var.sqs_queue_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "ecs_task_sqs" {
+  name   = "sqs-access"
+  role   = aws_iam_role.ecs_task.id
+  policy = data.aws_iam_policy_document.ecs_task_sqs.json
+}

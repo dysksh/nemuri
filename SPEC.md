@@ -165,13 +165,16 @@ Convergence detection: stop if same issue flagged 3 times or score improvement <
 ```
 
 **GSI**:
-- `thread_id-index` (PK: `thread_id`) — look up job by Discord thread
+- `thread_id-index` (PK: `thread_id`) — look up job by Discord thread (used in Phase 8: user responds in thread → find job)
+
+**Note**: `thread_id` is not set at job creation time. It is populated later when the agent creates a Discord thread for the job (Phase 8).
 
 #### State Transitions
 
 ```
 INIT → RUNNING → WAITING_USER_INPUT → (user responds) → RUNNING
 INIT → RUNNING → READY_FOR_PR → WAITING_APPROVAL → DONE
+INIT → RUNNING → DONE  (simple jobs that complete without PR)
 Any  → FAILED
 ```
 
@@ -179,7 +182,7 @@ Allowed transitions (enforced in code):
 
 ```
 INIT              → [RUNNING]
-RUNNING           → [WAITING_USER_INPUT, READY_FOR_PR, FAILED]
+RUNNING           → [WAITING_USER_INPUT, READY_FOR_PR, DONE, FAILED]
 WAITING_USER_INPUT→ [RUNNING]
 READY_FOR_PR      → [WAITING_APPROVAL]
 WAITING_APPROVAL  → [DONE]
@@ -207,7 +210,7 @@ WAITING_APPROVAL  → [DONE]
 - **Completion**:
   ```
   Condition: worker_id = :wid
-  Update:    state=DONE, REMOVE worker_id
+  Update:    state=DONE, version=:v+1, REMOVE worker_id, heartbeat_at
   ```
 
 ### 8. S3 — Storage
