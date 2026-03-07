@@ -17,3 +17,9 @@ resource "aws_secretsmanager_secret" "discord_bot_token" {
   name                    = "${var.project}/${var.environment}/discord-bot-token"
   recovery_window_in_days = 0
 }
+
+# GitHub Fine-grained Personal Access Token
+resource "aws_secretsmanager_secret" "github_pat" {
+  name                    = "${var.project}/${var.environment}/github-pat"
+  recovery_window_in_days = 0
+}

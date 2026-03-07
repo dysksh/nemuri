@@ -20,3 +20,8 @@ variable "discord_public_key" {
   description = "Discord application public key"
   type        = string
 }
+
+variable "default_github_owner" {
+  description = "Default GitHub owner (org or user) for code deliverables"
+  type        = string
+}

@@ -39,6 +39,9 @@ resource "aws_ecs_task_definition" "agent_engine" {
         { name = "AWS_REGION", value = var.aws_region },
         { name = "ANTHROPIC_API_KEY_SECRET_NAME", value = var.anthropic_api_key_name },
         { name = "DISCORD_BOT_TOKEN_SECRET_NAME", value = var.discord_bot_token_name },
+        { name = "GITHUB_PAT_SECRET_NAME", value = var.github_pat_name },
+        { name = "S3_BUCKET_NAME", value = var.s3_bucket_name },
+        { name = "DEFAULT_GITHUB_OWNER", value = var.default_github_owner },
       ]
 
       logConfiguration = {

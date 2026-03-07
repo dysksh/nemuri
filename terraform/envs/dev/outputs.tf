@@ -52,3 +52,13 @@ output "vpc_id" {
   description = "VPC ID"
   value       = module.network.vpc_id
 }
+
+output "s3_bucket_name" {
+  description = "S3 storage bucket name"
+  value       = module.s3.bucket_name
+}
+
+output "github_pat_secret_name" {
+  description = "Secrets Manager name for GitHub PAT"
+  value       = module.secrets.github_pat_name
+}

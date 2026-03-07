@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	discordBaseURL = "https://discord.com/api/v10"
-	maxContentLen  = 2000 // Discord message content limit
+	discordBaseURL      = "https://discord.com/api/v10"
+	maxContentLen       = 2000 // Discord message content limit
+	maxErrorResponseLen = 4096 // max bytes of API error response to read
 )
 
 // Client sends messages to Discord.
@@ -87,7 +88,7 @@ func (c *Client) postMessage(ctx context.Context, url, content string, useBotAut
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorResponseLen))
 		return fmt.Errorf("discord API error (%d): %s", resp.StatusCode, string(respBody))
 	}
 

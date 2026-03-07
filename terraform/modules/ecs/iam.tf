@@ -91,6 +91,7 @@ data "aws_iam_policy_document" "ecs_task_secrets" {
     resources = [
       var.anthropic_api_key_arn,
       var.discord_bot_token_arn,
+      var.github_pat_arn,
     ]
   }
 }
@@ -99,4 +100,27 @@ resource "aws_iam_role_policy" "ecs_task_secrets" {
   name   = "secrets-access"
   role   = aws_iam_role.ecs_task.id
   policy = data.aws_iam_policy_document.ecs_task_secrets.json
+}
+
+# --- S3 Access ---
+
+data "aws_iam_policy_document" "ecs_task_s3" {
+  statement {
+    actions = [
+      "s3:GetObject",
+      "s3:PutObject",
+      "s3:DeleteObject",
+      "s3:ListBucket",
+    ]
+    resources = [
+      var.s3_bucket_arn,
+      "${var.s3_bucket_arn}/*",
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "ecs_task_s3" {
+  name   = "s3-access"
+  role   = aws_iam_role.ecs_task.id
+  policy = data.aws_iam_policy_document.ecs_task_s3.json
 }
