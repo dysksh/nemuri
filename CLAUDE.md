@@ -17,7 +17,7 @@ Early development. Infrastructure and Agent Engine are not yet implemented. Curr
 - **IaC**: Terraform (modular, env-separated: `terraform/envs/{dev,prod}`, `terraform/modules/*`)
 - **LLM**: Claude API (direct, not CLI)
 - **Interface**: Discord slash commands
-- **Container**: Distroless base image, single Go binary
+- **Container**: debian:12-slim base image, single Go binary (wkhtmltopdf dependency requires glibc + shared libs)
 
 ## Architecture Summary
 

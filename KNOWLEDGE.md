@@ -28,6 +28,39 @@
 
 ## Design Decisions Log
 
+### GitHub Authentication: Fine-grained PAT
+
+**Decision**: Use a Fine-grained Personal Access Token (not GitHub App)
+
+**Rationale**:
+- GitHub App installation tokens cannot create repositories under personal accounts (`POST /user/repos` returns 403)
+- A fine-grained PAT covers all requirements: new repo creation, PR creation, and read/write to existing repos
+- Eliminates JWT generation and installation token refresh logic, simplifying the codebase
+
+**Required permissions (minimum)**:
+- Administration: Write (repo creation)
+- Contents: Write (file push)
+- Pull Requests: Write (PR creation)
+- Scope: All repositories (must include repos that don't exist yet)
+
+**Alternatives considered**:
+
+| Approach | Pros | Cons |
+|---|---|---|
+| GitHub App (installed on org) | Auto-rotating tokens, limited blast radius on leak | Requires org, cannot create personal repos |
+| GitHub App + PAT hybrid | Flexible | Two auth systems, added complexity |
+| Fine-grained PAT only | Simple, works for user and org repos | Manual rotation required |
+
+**Leak risk**:
+- Administration: Write also permits repo deletion and settings changes (cannot scope to creation only)
+- Contents: Write permits code overwrite and force-push
+- Mitigation: stored in Secrets Manager, accessible only via ECS task role (AWS recommended pattern)
+- ECS Fargate has no SSH, ECS Exec disabled by default, runs as non-root — small attack surface
+
+**Token rotation**:
+- Fine-grained PATs expire after at most 1 year; no API for programmatic renewal
+- A notification system (EventBridge + Lambda → Discord) will alert before expiry, managed in this repo's Terraform
+
 ### LLM Integration: API vs CLI
 
 **Decision**: Use Claude API directly (not Claude Code CLI)
@@ -158,12 +191,27 @@ Optimization levers:
 
 ## Container Design
 
-- **Base**: `gcr.io/distroless/base-debian12`
-- **Contents**: Go binary + ca-certificates (+ tzdata if needed)
-- **No shell** — reduces attack surface
+- **Base**: `debian:12-slim` (changed from distroless; wkhtmltopdf requires glibc + shared libs)
+- **Contents**: Go binary + ca-certificates + wkhtmltopdf + fonts (+ tzdata if needed)
 - **Workspace**: `/workspace/` (ephemeral, for Claude's working files)
 - **User**: non-root
-- **Size**: ~20–40 MB
+
+### PDF Conversion: wkhtmltopdf (Technical Debt)
+
+**Status**: wkhtmltopdf is archived and no longer maintained. No future security patches will be released.
+
+**Current choice rationale**: Simple, single-binary tool with no runtime dependencies beyond shared libs. Sufficient for current scope.
+
+**Migration candidates** (when needed):
+- **WeasyPrint** — Python-based, actively maintained, good CSS support
+- **Playwright/Puppeteer** — Chromium-based, most accurate rendering, heavier footprint
+- **go-wkhtmltopdf alternatives** — e.g., `chromedp` (Go + headless Chrome)
+
+**Trigger to migrate**: If a security vulnerability is discovered in wkhtmltopdf, or if rendering quality becomes insufficient.
+
+**Build availability risk**: The .deb is downloaded from GitHub Releases at build time. If the release becomes unavailable, builds will break. Mitigations:
+- Dockerfile uses a separate download stage so the .deb is cached in Docker layer cache
+- If GitHub releases go down, host the .deb in S3 or a private registry and update the URL
 
 ## Glossary
 

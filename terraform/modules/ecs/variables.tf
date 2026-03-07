@@ -69,3 +69,28 @@ variable "discord_bot_token_name" {
   description = "Name of the Discord bot token secret"
   type        = string
 }
+
+variable "github_pat_arn" {
+  description = "ARN of the GitHub PAT secret"
+  type        = string
+}
+
+variable "github_pat_name" {
+  description = "Name of the GitHub PAT secret"
+  type        = string
+}
+
+variable "s3_bucket_arn" {
+  description = "S3 storage bucket ARN"
+  type        = string
+}
+
+variable "s3_bucket_name" {
+  description = "S3 storage bucket name"
+  type        = string
+}
+
+variable "default_github_owner" {
+  description = "Default GitHub owner (org or user) for code deliverables"
+  type        = string
+}
