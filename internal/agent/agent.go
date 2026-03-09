@@ -11,9 +11,11 @@ import (
 )
 
 const (
-	maxToolIterations = 20
-	maxOutputTokens   = 32768
-	perCallMaxTokens  = 16384
+	maxToolIterations    = 20
+	maxOutputTokens      = 32768
+	perCallMaxTokens     = 16384
+	keepRecentIterations = 3    // number of recent iterations to keep full tool results
+	trimContentThreshold = 500  // tool results shorter than this are always kept
 )
 
 // Agent orchestrates LLM calls with a tool loop.
@@ -56,9 +58,17 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*RunResult, error) {
 		}
 		opts.MaxTokens = min(remaining, perCallMaxTokens)
 
-		slog.Info("agent iteration", "iteration", i+1, "output_tokens_used", totalOutput, "output_tokens_remaining", remaining)
+		slog.Info("agent iteration",
+			"iteration", i+1,
+			"input_tokens_used", totalInput,
+			"output_tokens_used", totalOutput,
+			"output_tokens_remaining", remaining,
+		)
 
-		resp, err := a.llm.SendMessage(ctx, SystemPrompt, messages, opts)
+		// Trim old tool results to reduce input tokens
+		trimmedMessages := trimConversation(messages, i)
+
+		resp, err := a.llm.SendMessage(ctx, SystemPrompt, trimmedMessages, opts)
 		if err != nil {
 			return nil, fmt.Errorf("llm call (iteration %d): %w", i+1, err)
 		}
@@ -197,4 +207,62 @@ func (a *Agent) execReadRepoFile(ctx context.Context, inputJSON string) (string,
 		return "", err
 	}
 	return string(content), nil
+}
+
+// trimConversation replaces large tool result content from older iterations with summaries.
+// This prevents the conversation from growing unboundedly as more files are read.
+//
+// Conversation structure: [user_prompt, assistant1, tool_results1, assistant2, tool_results2, ...]
+// Each iteration adds 2 messages (assistant + tool_results), so iteration index maps to message pairs.
+// Messages at index 0 is the initial user prompt (always kept).
+//
+// Heuristic: tool results shorter than trimContentThreshold are always kept (errors, file lists, etc.).
+// Only large content (file reads) from old iterations is replaced.
+func trimConversation(messages []llm.Message, currentIteration int) []llm.Message {
+	if currentIteration <= keepRecentIterations {
+		return messages
+	}
+
+	// Calculate the message index cutoff: keep messages from recent iterations.
+	// Messages layout: [user_prompt, (assistant, tool_results) × N]
+	// Iteration i corresponds to messages at indices 1+2*i and 2+2*i.
+	// We want to trim iterations older than (currentIteration - keepRecentIterations).
+	oldestKept := currentIteration - keepRecentIterations
+	cutoffIndex := 1 + 2*oldestKept // first message index to keep in full
+
+	trimmed := make([]llm.Message, len(messages))
+	copy(trimmed, messages)
+
+	for idx := 1; idx < len(trimmed) && idx < cutoffIndex; idx++ {
+		msg := trimmed[idx]
+		if msg.Role != "user" {
+			continue
+		}
+
+		// Tool result messages have Content as []ToolResultBlock
+		results, ok := msg.Content.([]llm.ToolResultBlock)
+		if !ok {
+			continue
+		}
+
+		var newResults []llm.ToolResultBlock
+		changed := false
+		for _, r := range results {
+			if !r.IsError && len(r.Content) > trimContentThreshold {
+				newResults = append(newResults, llm.ToolResultBlock{
+					Type:      r.Type,
+					ToolUseID: r.ToolUseID,
+					Content:   fmt.Sprintf("[content omitted: ~%d chars]", len(r.Content)),
+				})
+				changed = true
+			} else {
+				newResults = append(newResults, r)
+			}
+		}
+		if changed {
+			trimmed[idx] = llm.Message{Role: "user", Content: newResults}
+		}
+	}
+
+	return trimmed
 }

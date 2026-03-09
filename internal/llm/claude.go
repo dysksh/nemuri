@@ -6,8 +6,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
+	"math"
 	"net/http"
+	"strconv"
 	"time"
+)
+
+const (
+	maxRetries       = 5
+	initialBackoffMs = 1000 // 1 second
 )
 
 const (
@@ -100,32 +108,64 @@ func (c *ClaudeClient) SendMessage(ctx context.Context, systemPrompt string, mes
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.apiURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
+	var respBody []byte
+	for attempt := range maxRetries {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", c.apiKey)
-	req.Header.Set("anthropic-version", anthropicAPIVersion)
+		var req *http.Request
+		req, err = http.NewRequestWithContext(ctx, http.MethodPost, c.apiURL, bytes.NewReader(body))
+		if err != nil {
+			return nil, fmt.Errorf("create request: %w", err)
+		}
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("send request: %w", err)
-	}
-	defer resp.Body.Close()
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("x-api-key", c.apiKey)
+		req.Header.Set("anthropic-version", anthropicAPIVersion)
 
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
-	}
-	if len(respBody) > maxResponseBytes {
-		return nil, fmt.Errorf("response too large (exceeded %d bytes)", maxResponseBytes)
-	}
+		var resp *http.Response
+		resp, err = c.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("send request: %w", err)
+		}
 
-	if resp.StatusCode != http.StatusOK {
+		respBody, err = io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
+		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("read response: %w", err)
+		}
+		if len(respBody) > maxResponseBytes {
+			return nil, fmt.Errorf("response too large (exceeded %d bytes)", maxResponseBytes)
+		}
+
+		if resp.StatusCode == http.StatusOK {
+			break
+		}
+
+		// Retry on 429 (rate limit) and 529 (overloaded)
+		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == 529 {
+			if attempt == maxRetries-1 {
+				var apiErr apiError
+				if jsonErr := json.Unmarshal(respBody, &apiErr); jsonErr == nil && apiErr.Error.Message != "" {
+					return nil, fmt.Errorf("claude API error (%d) after %d retries: %s: %s", resp.StatusCode, maxRetries, apiErr.Error.Type, apiErr.Error.Message)
+				}
+				return nil, fmt.Errorf("claude API error (%d) after %d retries: %s", resp.StatusCode, maxRetries, string(respBody))
+			}
+
+			backoff := retryBackoff(attempt, resp.Header.Get("retry-after"))
+			slog.Warn("rate limited, retrying", "status", resp.StatusCode, "attempt", attempt+1, "backoff_sec", backoff.Seconds())
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(backoff):
+			}
+			continue
+		}
+
+		// Non-retryable error
 		var apiErr apiError
-		if err := json.Unmarshal(respBody, &apiErr); err == nil && apiErr.Error.Message != "" {
+		if jsonErr := json.Unmarshal(respBody, &apiErr); jsonErr == nil && apiErr.Error.Message != "" {
 			return nil, fmt.Errorf("claude API error (%d): %s: %s", resp.StatusCode, apiErr.Error.Type, apiErr.Error.Message)
 		}
 		return nil, fmt.Errorf("claude API error (%d): %s", resp.StatusCode, string(respBody))
@@ -184,4 +224,16 @@ func (c *ClaudeClient) SendMessage(ctx context.Context, systemPrompt string, mes
 	}
 
 	return &Response{Content: text, RawContent: rawContent, Usage: usage}, nil
+}
+
+// retryBackoff calculates the wait duration for a retry attempt.
+// Uses the Retry-After header if present, otherwise exponential backoff.
+func retryBackoff(attempt int, retryAfter string) time.Duration {
+	if retryAfter != "" {
+		if secs, err := strconv.Atoi(retryAfter); err == nil && secs > 0 {
+			return time.Duration(secs) * time.Second
+		}
+	}
+	backoffMs := float64(initialBackoffMs) * math.Pow(2, float64(attempt))
+	return time.Duration(backoffMs) * time.Millisecond
 }
