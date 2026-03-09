@@ -45,14 +45,21 @@ type Job struct {
 	TTL       int64 `dynamodbav:"ttl"`
 }
 
+// DynamoDBAPI is the subset of the DynamoDB client used by Store.
+type DynamoDBAPI interface {
+	PutItem(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)
+	GetItem(ctx context.Context, params *dynamodb.GetItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
+	UpdateItem(ctx context.Context, params *dynamodb.UpdateItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error)
+}
+
 // Store manages job state in DynamoDB.
 type Store struct {
-	client    *dynamodb.Client
+	client    DynamoDBAPI
 	tableName string
 }
 
 // NewStore creates a new state Store.
-func NewStore(client *dynamodb.Client, tableName string) *Store {
+func NewStore(client DynamoDBAPI, tableName string) *Store {
 	return &Store{
 		client:    client,
 		tableName: tableName,

@@ -105,12 +105,12 @@ module "ecs" {
   sqs_queue_url       = module.sqs.queue_url
   sqs_queue_arn       = module.sqs.queue_arn
 
-  anthropic_api_key_arn       = module.secrets.anthropic_api_key_arn
-  anthropic_api_key_name      = module.secrets.anthropic_api_key_name
-  discord_bot_token_arn       = module.secrets.discord_bot_token_arn
-  discord_bot_token_name      = module.secrets.discord_bot_token_name
-  github_pat_arn  = module.secrets.github_pat_arn
-  github_pat_name = module.secrets.github_pat_name
+  anthropic_api_key_arn  = module.secrets.anthropic_api_key_arn
+  anthropic_api_key_name = module.secrets.anthropic_api_key_name
+  discord_bot_token_arn  = module.secrets.discord_bot_token_arn
+  discord_bot_token_name = module.secrets.discord_bot_token_name
+  github_pat_arn         = module.secrets.github_pat_arn
+  github_pat_name        = module.secrets.github_pat_name
 
   s3_bucket_arn  = module.s3.bucket_arn
   s3_bucket_name = module.s3.bucket_name

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "=== pre-commit: gofmt ==="
+UNFORMATTED=$(gofmt -l .)
+if [ -n "$UNFORMATTED" ]; then
+  echo "The following files are not formatted:"
+  echo "$UNFORMATTED"
+  echo "Run: gofmt -w ."
+  exit 1
+fi
+
+echo "=== pre-commit: golangci-lint ==="
+golangci-lint run ./...
+
+echo "=== pre-commit: terraform fmt ==="
+if ! terraform fmt -check -recursive terraform/; then
+  echo "Run: terraform fmt -recursive terraform/"
+  exit 1
+fi
+
+echo "=== pre-commit: tflint ==="
+tflint --chdir=terraform/envs/dev
+
+echo "pre-commit checks passed."
