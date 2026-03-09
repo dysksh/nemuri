@@ -1,0 +1,26 @@
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: .devcontainer/Dockerfile
+    user: ${USER_UID:-1000}:${USER_GID:-1000}
+    volumes:
+      - .:/workspace
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${HOME}/.gitconfig:${DEV_HOME:-/home/dev}/.gitconfig:ro
+      - ${HOME}/.ssh:${DEV_HOME:-/home/dev}/.ssh:ro
+      - ${HOME}/.aws:${DEV_HOME:-/home/dev}/.aws:ro
+      - ${HOME}/.claude:${DEV_HOME:-/home/dev}/.claude
+      - ${HOME}/.config/infracost:${DEV_HOME:-/home/dev}/.config/infracost:ro
+      - ${HOME}/.config/nvim:${DEV_HOME:-/home/dev}/.config/nvim
+      - nvim-data:${DEV_HOME:-/home/dev}/.local/share/nvim
+    working_dir: /workspace
+    environment:
+      - AWS_PROFILE
+      - AWS_REGION=${AWS_REGION:-ap-northeast-1}
+      - HOME=${DEV_HOME:-/home/dev}
+      - GOPATH=${DEV_HOME:-/home/dev}/go
+    entrypoint: ["/workspace/scripts/entrypoint.sh"]
+
+volumes:
+  nvim-data:

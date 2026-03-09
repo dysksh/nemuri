@@ -15,6 +15,11 @@ import (
 	ecsTypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 )
 
+// ecsRunTaskAPI is the subset of the ECS client used by processRecord.
+type ecsRunTaskAPI interface {
+	RunTask(ctx context.Context, params *ecs.RunTaskInput, optFns ...func(*ecs.Options)) (*ecs.RunTaskOutput, error)
+}
+
 type sqsJobMessage struct {
 	JobID            string `json:"job_id"`
 	Prompt           string `json:"prompt"`
@@ -24,11 +29,11 @@ type sqsJobMessage struct {
 }
 
 var (
-	ecsClient          *ecs.Client
-	clusterArn         string
-	taskDefinitionArn  string
-	subnetIDs          []string
-	securityGroupID    string
+	ecsClient         ecsRunTaskAPI
+	clusterArn        string
+	taskDefinitionArn string
+	subnetIDs         []string
+	securityGroupID   string
 )
 
 func init() {

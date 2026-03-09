@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "=== pre-push: make test ==="
+make test
+
+echo "pre-push checks passed."

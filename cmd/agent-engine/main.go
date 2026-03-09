@@ -28,7 +28,6 @@ import (
 	"github.com/nemuri/nemuri/internal/secrets"
 	"github.com/nemuri/nemuri/internal/state"
 	"github.com/nemuri/nemuri/internal/storage"
-
 )
 
 const (

@@ -21,6 +21,7 @@ const (
 // ClaudeClient implements the Client interface using the Anthropic Messages API.
 type ClaudeClient struct {
 	apiKey     string
+	apiURL     string
 	model      string
 	maxTokens  int
 	httpClient *http.Client
@@ -28,8 +29,14 @@ type ClaudeClient struct {
 
 // NewClaudeClient creates a new Claude API client.
 func NewClaudeClient(apiKey string) Client {
+	return NewClaudeClientWithURL(apiKey, anthropicAPIURL)
+}
+
+// NewClaudeClientWithURL creates a Claude API client with a custom API endpoint.
+func NewClaudeClientWithURL(apiKey, apiURL string) Client {
 	return &ClaudeClient{
 		apiKey:     apiKey,
+		apiURL:     apiURL,
 		model:      defaultModel,
 		maxTokens:  defaultMaxTokens,
 		httpClient: &http.Client{Timeout: 5 * time.Minute},
@@ -93,7 +100,7 @@ func (c *ClaudeClient) SendMessage(ctx context.Context, systemPrompt string, mes
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, anthropicAPIURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.apiURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}

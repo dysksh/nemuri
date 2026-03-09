@@ -13,7 +13,7 @@ type Message struct {
 
 // ToolResultBlock is a content block for sending tool results back to the LLM.
 type ToolResultBlock struct {
-	Type      string `json:"type"`       // always "tool_result"
+	Type      string `json:"type"` // always "tool_result"
 	ToolUseID string `json:"tool_use_id"`
 	Content   string `json:"content"`
 	IsError   bool   `json:"is_error,omitempty"`
@@ -62,8 +62,8 @@ type Usage struct {
 
 // ToolCall represents a single tool_use block from the LLM response.
 type ToolCall struct {
-	ID       string // tool_use ID
-	Name     string // tool name
+	ID        string // tool_use ID
+	Name      string // tool name
 	InputJSON string // raw JSON input
 }
 

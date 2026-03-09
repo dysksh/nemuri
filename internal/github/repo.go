@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	repoReadyMaxRetries  = 10
+	repoReadyMaxRetries   = 10
 	repoReadyPollInterval = 1 * time.Second
 	gitFileMode           = "100644" // standard file mode for git blobs
 )
