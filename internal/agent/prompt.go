@@ -1,6 +1,12 @@
 package agent
 
-import "github.com/nemuri/nemuri/internal/llm"
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/nemuri/nemuri/internal/llm"
+)
 
 // AgentResponse is the structured response from Claude.
 type AgentResponse struct {
@@ -30,7 +36,13 @@ const (
 	ResponseTypeFile    = "file"
 )
 
-const toolName = "deliver_result"
+const (
+	toolName       = "deliver_result"
+	reviewToolName = "submit_review"
+
+	reviewMaxTokens  = 8192
+	rewriteMaxTokens = 16384
+)
 
 // SystemPrompt instructs Claude on how to behave.
 const SystemPrompt = `You are a task automation assistant called Nemuri. You receive requests from users and deliver results by calling the deliver_result tool.
@@ -111,6 +123,64 @@ func (a *Agent) buildSendOptions() *llm.SendOptions {
 	}
 }
 
+// reviewPrompt is the system prompt for the Reviewer.
+const reviewPrompt = `You are a code reviewer. You receive generated code files and the original user request, and evaluate the code quality.
+
+Evaluate the code on these dimensions (score 1-10):
+- correctness: Does the code correctly implement what was requested? Are there bugs or logic errors?
+- security: Are there security vulnerabilities (injection, XSS, hardcoded secrets, etc.)?
+- maintainability: Is the code well-structured, readable, and following best practices?
+- completeness: Does the code fully address the user's request? Are there missing pieces?
+
+Call the submit_review tool with your evaluation.
+
+Rules:
+- Be strict but fair. Only flag real issues, not style preferences.
+- If there are no issues, pass an empty issues array.
+- Focus on issues that affect functionality, security, or correctness.
+- For non-code deliverables (text, documents), evaluate content quality, accuracy, and completeness instead of code metrics.`
+
+// rewritePrompt is the system prompt for the Rewriter.
+const rewritePrompt = `You are a code rewriter. You receive generated code, the original user request, and a list of issues found during review. Your job is to fix ONLY the flagged issues — do not refactor, redesign, or add features beyond what's needed to resolve the issues.
+
+You will receive the original output and a review with specific issues. Fix each issue while preserving the overall structure and intent of the code.
+
+Rules:
+- Fix ONLY the issues listed in the review. Do not make unrelated changes.
+- Preserve file paths, naming conventions, and overall architecture.
+- If an issue cannot be fixed without a major redesign, leave a TODO comment explaining why.
+- Output the complete corrected files — do not output diffs or partial files.`
+
+// buildReviewSendOptions returns the SendOptions for a review call.
+func buildReviewSendOptions() *llm.SendOptions {
+	return &llm.SendOptions{
+		Tools: []llm.ToolDefinition{
+			{
+				Name:        reviewToolName,
+				Description: "Submit the code review evaluation with scores and issues.",
+				InputSchema: buildReviewResultSchema(),
+			},
+		},
+		ToolChoice: &llm.ToolChoice{Type: "tool", Name: reviewToolName},
+		MaxTokens:  reviewMaxTokens,
+	}
+}
+
+// buildRewriteSendOptions returns the SendOptions for a rewrite call.
+func buildRewriteSendOptions() *llm.SendOptions {
+	return &llm.SendOptions{
+		Tools: []llm.ToolDefinition{
+			{
+				Name:        toolName,
+				Description: "Deliver the rewritten result. Use the same type and structure as the original.",
+				InputSchema: buildDeliverResultSchema(),
+			},
+		},
+		ToolChoice: &llm.ToolChoice{Type: "tool", Name: toolName},
+		MaxTokens:  rewriteMaxTokens,
+	}
+}
+
 func buildDeliverResultSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
@@ -164,5 +234,90 @@ func buildDeliverResultSchema() map[string]any {
 			},
 		},
 		"required": []string{"type"},
+	}
+}
+
+func buildReviewResultSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"scores": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"correctness":     map[string]any{"type": "number", "description": "Score 1-10: Does the code correctly implement what was requested?"},
+					"security":        map[string]any{"type": "number", "description": "Score 1-10: Are there security vulnerabilities?"},
+					"maintainability": map[string]any{"type": "number", "description": "Score 1-10: Is the code well-structured and readable?"},
+					"completeness":    map[string]any{"type": "number", "description": "Score 1-10: Does the code fully address the request?"},
+				},
+				"required": []string{"correctness", "security", "maintainability", "completeness"},
+			},
+			"issues": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"file":     map[string]any{"type": "string", "description": "Filename where the issue was found."},
+						"line":     map[string]any{"type": "string", "description": "Line number or range, if applicable."},
+						"severity": map[string]any{"type": "string", "enum": []string{"critical", "major", "minor"}, "description": "Issue severity."},
+						"category": map[string]any{"type": "string", "enum": []string{"correctness", "security", "maintainability", "completeness"}, "description": "Issue category."},
+						"message":  map[string]any{"type": "string", "description": "Description of the issue."},
+					},
+					"required": []string{"file", "severity", "category", "message"},
+				},
+				"description": "List of issues found. Empty array if no issues.",
+			},
+			"summary": map[string]any{
+				"type":        "string",
+				"description": "Brief overall assessment of the code quality.",
+			},
+		},
+		"required": []string{"scores", "issues", "summary"},
+	}
+}
+
+// buildReviewInput creates the user message for a review call.
+func buildReviewInput(prompt string, resp *AgentResponse) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Original Request\n\n%s\n\n## Generated Output\n\nType: %s\n", prompt, resp.Type)
+	if resp.Title != "" {
+		fmt.Fprintf(&b, "Title: %s\n", resp.Title)
+	}
+	if resp.Description != "" {
+		fmt.Fprintf(&b, "Description: %s\n", resp.Description)
+	}
+	b.WriteByte('\n')
+	writeFiles(&b, resp.Files)
+	return b.String()
+}
+
+// buildRewriteInput creates the user message for a rewrite call.
+func buildRewriteInput(prompt string, resp *AgentResponse, review *ReviewResult) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Original Request\n\n%s\n\n## Current Output\n\nType: %s\n", prompt, resp.Type)
+	if resp.Repo != "" {
+		fmt.Fprintf(&b, "Repo: %s\n", resp.Repo)
+	}
+	if resp.Title != "" {
+		fmt.Fprintf(&b, "Title: %s\n", resp.Title)
+	}
+	if resp.Description != "" {
+		fmt.Fprintf(&b, "Description: %s\n", resp.Description)
+	}
+	b.WriteByte('\n')
+	writeFiles(&b, resp.Files)
+
+	reviewJSON, _ := json.MarshalIndent(review, "", "  ")
+	fmt.Fprintf(&b, "## Review Results\n\n%s\n\nFix the issues listed above. Use the deliver_result tool with the corrected files. Keep the same type, repo, title format.\n", reviewJSON)
+	return b.String()
+}
+
+// writeFiles appends file content blocks to a strings.Builder.
+func writeFiles(b *strings.Builder, files []OutputFile) {
+	for _, f := range files {
+		name := f.Path
+		if name == "" {
+			name = f.Name
+		}
+		fmt.Fprintf(b, "### File: %s\n```\n%s\n```\n\n", name, f.Content)
 	}
 }

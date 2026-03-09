@@ -2,76 +2,75 @@
 
 ## Phase 0: Prerequisites
 
-- [ ] Configure AWS CLI credentials
-- [ ] Initialize Terraform (backend, provider config)
-- [ ] Create Discord application in Developer Portal
-- [ ] Add bot to Discord application
-- [ ] Obtain Discord public key
-- [ ] Register `/agent` slash command via Discord API
+- [x] Configure AWS CLI credentials
+- [x] Initialize Terraform (backend, provider config)
+- [x] Create Discord application in Developer Portal
+- [x] Add bot to Discord application
+- [x] Obtain Discord public key
+- [x] Register `/agent` slash command via Discord API
 
 ## Phase 1: Discord → Lambda (Ingress)
 
-- [ ] Write Terraform module: `network` (VPC, subnets, NAT, SG)
-- [ ] Write Terraform module: `lambda_ingress` (API Gateway + Lambda)
-- [ ] Implement Lambda handler: signature verification
-- [ ] Implement Lambda handler: PING → PONG
-- [ ] Implement Lambda handler: slash command → deferred ACK (type=5)
-- [ ] Set Interaction Endpoint URL in Discord Developer Portal
-- [ ] Test: `/agent hello` → "Bot is thinking..." in Discord
+- [x] Write Terraform module: `network` (VPC, subnets, NAT, SG)
+- [x] Write Terraform module: `lambda_ingress` (API Gateway + Lambda)
+- [x] Implement Lambda handler: signature verification
+- [x] Implement Lambda handler: PING → PONG
+- [x] Implement Lambda handler: slash command → deferred ACK (type=5)
+- [x] Set Interaction Endpoint URL in Discord Developer Portal
+- [x] Test: `/agent hello` → "Bot is thinking..." in Discord
 
 ## Phase 2: SQS Integration
 
-- [ ] Write Terraform module: `sqs` (job queue + DLQ)
-- [ ] Update Ingress Lambda: generate job_id (UUID)
-- [ ] Update Ingress Lambda: send SQS message
-- [ ] Test: slash command → message visible in SQS console
+- [x] Write Terraform module: `sqs` (job queue + DLQ)
+- [x] Update Ingress Lambda: generate job_id (UUID)
+- [x] Update Ingress Lambda: send SQS message
+- [x] Test: slash command → message visible in SQS console
 
 ## Phase 3: ECS RunTask
 
-- [ ] Write Terraform module: `ecr`
-- [ ] Write Terraform module: `ecs` (cluster, task definition, IAM roles)
-- [ ] Write Terraform module: `lambda_runner` (SQS trigger → RunTask)
-- [ ] Create minimal Dockerfile (distroless + Go hello-world binary)
-- [ ] Build and push image to ECR
-- [ ] Test: slash command → ECS task runs → "hello" in CloudWatch
+- [x] Write Terraform module: `ecr`
+- [x] Write Terraform module: `ecs` (cluster, task definition, IAM roles)
+- [x] Write Terraform module: `lambda_runner` (SQS trigger → RunTask)
+- [x] Create Dockerfile (debian:12-slim + Go binary)
+- [x] Build and push image to ECR
+- [x] Test: slash command → ECS task runs → "hello" in CloudWatch
 
 ## Phase 4: DynamoDB State Management
 
-- [ ] Write Terraform module: `dynamodb` (jobs table, GSI: thread_id)
-- [ ] Update Ingress Lambda: create job record (state=INIT)
-- [ ] Implement Agent Engine: DynamoDB lock acquisition (conditional write)
-- [ ] Implement Agent Engine: state transition logic (allowed transitions map)
-- [ ] Implement Agent Engine: heartbeat goroutine (3-min interval)
-- [ ] Implement Agent Engine: SQS visibility timeout extension (3-min interval)
-- [ ] Implement Agent Engine: update state to DONE + delete SQS message on completion
-- [ ] Test: full job lifecycle visible in DynamoDB
+- [x] Write Terraform module: `dynamodb` (jobs table, GSI: thread_id)
+- [x] Update Ingress Lambda: create job record (state=INIT)
+- [x] Implement Agent Engine: DynamoDB lock acquisition (conditional write)
+- [x] Implement Agent Engine: state transition logic (allowed transitions map)
+- [x] Implement Agent Engine: heartbeat goroutine (3-min interval)
+- [x] Implement Agent Engine: SQS visibility timeout extension (3-min interval)
+- [x] Implement Agent Engine: update state to DONE + delete SQS message on completion
+- [x] Test: full job lifecycle visible in DynamoDB
 
 ## Phase 5: Claude API Integration
 
-- [ ] Design LLM Adapter interface (for future model swapping)
-- [ ] Implement Claude API client in Go
-- [ ] Implement simple flow: prompt → Claude → text result
-- [ ] Implement Discord follow-up message (POST via interaction token)
-- [ ] Write Terraform module: `s3` (artifacts + outputs buckets)
-- [ ] Test: `/agent <question>` → Claude answers → response in Discord
+- [x] Design LLM Adapter interface (for future model swapping)
+- [x] Implement Claude API client in Go
+- [x] Implement simple flow: prompt → Claude → text result
+- [x] Implement Discord follow-up message (POST via interaction token)
+- [x] Write Terraform module: `s3` (artifacts + outputs buckets)
+- [x] Test: `/agent <question>` → Claude answers → response in Discord
 
 ## Phase 6: GitHub & S3 Deliverables
 
-- [ ] Create GitHub App with appropriate permissions
-- [ ] Store GitHub App credentials in AWS Secrets Manager
-- [ ] Implement Tool Executor: clone, checkout branch, commit, push
-- [ ] Implement Tool Executor: create PR via GitHub API
-- [ ] Implement Tool Executor: S3 upload + presigned URL generation
-- [ ] Post PR link / presigned URL to Discord
-- [ ] Test: `/agent build a Go REST API` → PR created → link in Discord
+- [x] Configure Fine-grained PAT, store in Secrets Manager
+- [x] Implement Tool Executor: commit, push via GitHub API
+- [x] Implement Tool Executor: create PR via GitHub API
+- [x] Implement Tool Executor: S3 upload + presigned URL generation
+- [x] Post PR link / presigned URL to Discord
+- [x] Test: `/agent build a Go REST API` → PR created → link in Discord
 
 ## Phase 7: Review Loop
 
-- [ ] Define review output schema (JSON: scores + issues list)
-- [ ] Implement Reviewer function (structured evaluation)
-- [ ] Implement Rewriter function (partial fix of flagged issues only)
-- [ ] Implement review loop controller (convergence detection, max_revision)
-- [ ] Test: generated code → reviewed → issues fixed → PR created
+- [x] Define review output schema (JSON: scores + issues list via tool_use)
+- [x] Implement Reviewer function (structured evaluation via submit_review tool)
+- [x] Implement Rewriter function (partial fix of flagged issues only)
+- [x] Implement review loop controller (convergence detection, max_revision)
+- [x] Test: generated code → reviewed → issues fixed → PR created
 
 ## Phase 8: User Interaction
 

@@ -8,7 +8,7 @@ See [SPEC.md](SPEC.md) for detailed architecture, [PLAN.md](PLAN.md) for impleme
 
 ## Project Status
 
-Early development. Infrastructure and Agent Engine are not yet implemented. Currently in Phase 0 (prerequisites).
+Phase 7 (Review Loop) completed. Phases 0–7 are implemented. Next: Phase 8 (User Interaction).
 
 ## Tech Stack
 
@@ -40,15 +40,23 @@ ECS runs Agent Engine (Go) → Claude API + GitHub + S3 + DynamoDB + Discord API
 - **Secrets** go in AWS Secrets Manager; non-secret config in SSM Parameter Store
 - **No always-on infrastructure** — everything is on-demand
 
-## Code Organization (Planned)
+## Code Organization
 
 ```
 nemuri/
-├── CLAUDE.md
-├── SPEC.md
-├── PLAN.md
-├── TODO.md
-├── KNOWLEDGE.md
+├── cmd/
+│   ├── agent-engine/        # Main agent binary (runs on ECS)
+│   ├── lambda-ingress/      # Discord → SQS (API Gateway Lambda)
+│   └── lambda-runner/       # SQS → ECS RunTask (Lambda)
+├── internal/
+│   ├── agent/               # Agent loop, Reviewer, Rewriter, prompts
+│   ├── llm/                 # LLM Adapter interface + Claude implementation
+│   ├── state/               # DynamoDB state management, transitions
+│   ├── converter/           # Markdown → HTML → PDF conversion
+│   ├── discord/             # Discord API client
+│   ├── github/              # GitHub API client (repo, content, PR)
+│   ├── secrets/             # AWS Secrets Manager wrapper
+│   └── storage/             # S3 operations wrapper
 ├── terraform/
 │   ├── envs/dev/
 │   ├── envs/prod/
@@ -62,14 +70,6 @@ nemuri/
 │       ├── dynamodb/
 │       ├── s3/
 │       └── iam/
-├── cmd/
-│   └── agent-engine/       # Main entry point
-├── internal/
-│   ├── agent/               # Planner, Builder, Reviewer, Rewriter
-│   ├── llm/                 # LLM Adapter interface + Claude implementation
-│   ├── state/               # DynamoDB state management, transitions
-│   ├── tools/               # Tool Executor (GitHub, S3, Discord)
-│   └── worker/              # Job lifecycle, heartbeat, SQS handling
 ├── Dockerfile
 ├── go.mod
 └── go.sum
@@ -80,6 +80,7 @@ nemuri/
 - Write idiomatic Go; follow standard project layout
 - Keep the Agent Engine as a "thin orchestrator" — logic should be in well-separated packages
 - LLM calls go through the adapter interface (support future model swapping)
-- All external service interactions go through the Tool Executor layer
+- External service interactions are isolated in dedicated packages (`github/`, `discord/`, `storage/`)
 - Prefer structured JSON output from LLM calls
 - Infrastructure changes must go through Terraform (no manual AWS console changes)
+- **Keep documentation in sync**: When code, architecture, or conventions change, update the relevant markdown files (`CLAUDE.md`, `README.md`, `SPEC.md`, `PLAN.md`, `TODO.md`, `KNOWLEDGE.md`) as part of the same change. Do not leave documentation out of date.

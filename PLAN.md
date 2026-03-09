@@ -33,79 +33,79 @@ Terraform implementation order (follows dependency graph):
 
 ### Phase 0 — Prerequisites
 
-- [ ] AWS CLI login & credentials configured
-- [ ] Terraform initialized (backend, provider)
-- [ ] Discord Developer Portal: create application, add bot, get public key
-- [ ] Register slash command (`/agent`) via Discord API
+- [x] AWS CLI login & credentials configured
+- [x] Terraform initialized (backend, provider)
+- [x] Discord Developer Portal: create application, add bot, get public key
+- [x] Register slash command (`/agent`) via Discord API
 
 ### Phase 1 — Discord → Lambda (Ingress)
 
 **Goal**: Receive a slash command and respond.
 
-- [ ] Deploy API Gateway + Lambda (Ingress) via Terraform
-- [ ] Implement signature verification (Discord public key)
-- [ ] Handle PING (type=1) → return PONG
-- [ ] Handle slash command (type=2) → return deferred ACK (type=5)
-- [ ] Set Interaction Endpoint URL in Discord Developer Portal
-- [ ] Verify end-to-end: slash command in Discord → "Bot is thinking..." displayed
+- [x] Deploy API Gateway + Lambda (Ingress) via Terraform
+- [x] Implement signature verification (Discord public key)
+- [x] Handle PING (type=1) → return PONG
+- [x] Handle slash command (type=2) → return deferred ACK (type=5)
+- [x] Set Interaction Endpoint URL in Discord Developer Portal
+- [x] Verify end-to-end: slash command in Discord → "Bot is thinking..." displayed
 
 ### Phase 2 — SQS Integration
 
 **Goal**: Ingress Lambda enqueues jobs.
 
-- [ ] Deploy SQS queue + DLQ via Terraform
-- [ ] Ingress Lambda: generate job_id, send SQS message `{ job_id, prompt, interaction_token, channel_id, application_id }`
-- [ ] Verify: message appears in SQS after slash command
+- [x] Deploy SQS queue + DLQ via Terraform
+- [x] Ingress Lambda: generate job_id, send SQS message `{ job_id, prompt, interaction_token, channel_id, application_id }`
+- [x] Verify: message appears in SQS after slash command
 
 ### Phase 3 — ECS RunTask
 
 **Goal**: SQS triggers ECS task execution.
 
-- [ ] Deploy ECS cluster + task definition via Terraform (initial container: `echo "hello from ECS"`)
-- [ ] Deploy Runner Lambda (SQS trigger → `ecs:RunTask`)
-- [ ] Build and push container image to ECR
-- [ ] Verify: slash command → SQS → ECS task runs → CloudWatch log shows "hello"
+- [x] Deploy ECS cluster + task definition via Terraform (initial container: `echo "hello from ECS"`)
+- [x] Deploy Runner Lambda (SQS trigger → `ecs:RunTask`)
+- [x] Build and push container image to ECR
+- [x] Verify: slash command → SQS → ECS task runs → CloudWatch log shows "hello"
 
 ### Phase 4 — DynamoDB State Management
 
 **Goal**: Jobs are tracked with state.
 
-- [ ] Deploy DynamoDB jobs table via Terraform (PK: job_id, GSI: thread_id)
-- [ ] Ingress Lambda: create job record (state=INIT)
-- [ ] ECS container: read job, update state to RUNNING, then DONE on exit
-- [ ] Implement conditional write for locking (worker_id, heartbeat_at)
-- [ ] Implement heartbeat goroutine (update every 3 minutes)
-- [ ] Implement SQS visibility timeout extension (every 3 minutes)
-- [ ] Verify: job lifecycle visible in DynamoDB
+- [x] Deploy DynamoDB jobs table via Terraform (PK: job_id, GSI: thread_id)
+- [x] Ingress Lambda: create job record (state=INIT)
+- [x] ECS container: read job, update state to RUNNING, then DONE on exit
+- [x] Implement conditional write for locking (worker_id, heartbeat_at)
+- [x] Implement heartbeat goroutine (update every 3 minutes)
+- [x] Implement SQS visibility timeout extension (every 3 minutes)
+- [x] Verify: job lifecycle visible in DynamoDB
 
 ### Phase 5 — Claude API Integration
 
 **Goal**: Agent Engine calls Claude and returns results.
 
-- [ ] Implement LLM Adapter Layer (interface for swappable LLM providers)
-- [ ] Implement Claude API client in Go
-- [ ] Simple flow: receive prompt → call Claude → return text result
-- [ ] Send result back to Discord via interaction token (follow-up message)
-- [ ] Verify: slash command → Claude generates response → appears in Discord
+- [x] Implement LLM Adapter Layer (interface for swappable LLM providers)
+- [x] Implement Claude API client in Go
+- [x] Simple flow: receive prompt → call Claude → return text result
+- [x] Send result back to Discord via interaction token (follow-up message)
+- [x] Verify: slash command → Claude generates response → appears in Discord
 
 ### Phase 6 — GitHub & S3 Deliverables
 
 **Goal**: Agent can create code and push to GitHub.
 
-- [ ] Create GitHub App, configure permissions
-- [ ] Implement Tool Executor: git clone, commit, push, create PR
-- [ ] Implement S3 upload for non-code deliverables
-- [ ] Implement presigned URL generation for Discord delivery
-- [ ] Verify: slash command → code generated → PR created → link posted to Discord
+- [x] Configure Fine-grained PAT, store in Secrets Manager
+- [x] Implement Tool Executor: commit, push, create PR via GitHub API
+- [x] Implement S3 upload for non-code deliverables
+- [x] Implement presigned URL generation for Discord delivery
+- [x] Verify: slash command → code generated → PR created → link posted to Discord
 
 ### Phase 7 — Review Loop
 
 **Goal**: Output is reviewed and improved before delivery.
 
-- [ ] Implement Reviewer function (single model, structured JSON output)
-- [ ] Implement Rewriter function (partial regeneration of flagged issues only)
-- [ ] Implement review loop with convergence detection and max_revision limit
-- [ ] Verify: generated code is reviewed, issues fixed, then PR created
+- [x] Implement Reviewer function (single model, structured JSON output via tool_use)
+- [x] Implement Rewriter function (partial regeneration of flagged issues only)
+- [x] Implement review loop with convergence detection and max_revision limit
+- [x] Verify: generated code is reviewed, issues fixed, then PR created
 
 ### Phase 8 — User Interaction (Questions & Approval)
 
