@@ -146,7 +146,8 @@ func main() {
 
 	// 4. Execute job logic
 	agentRunner := agent.New(llmClient, githubClient, defaultGithubOwner)
-	jobErr := executeJob(ctx, job, agentRunner, discordClient, githubClient, storageClient, defaultGithubOwner)
+	reviewCfg := agent.DefaultReviewConfig()
+	jobErr := executeJob(ctx, job, agentRunner, reviewCfg, discordClient, githubClient, storageClient, defaultGithubOwner)
 
 	// 5. Stop heartbeat
 	heartbeatCancel()
@@ -191,10 +192,10 @@ func main() {
 	slog.Info("agent-engine finished successfully", "job_id", jobID)
 }
 
-func executeJob(ctx context.Context, job *state.Job, agentRunner *agent.Agent, discordClient *discord.Client, githubClient *github.Client, storageClient *storage.Client, defaultGithubOwner string) error {
+func executeJob(ctx context.Context, job *state.Job, agentRunner *agent.Agent, reviewCfg agent.ReviewConfig, discordClient *discord.Client, githubClient *github.Client, storageClient *storage.Client, defaultGithubOwner string) error {
 	slog.Info("executing job", "job_id", job.JobID, "prompt", job.Prompt)
 
-	runResult, err := agentRunner.Run(ctx, job.Prompt)
+	runResult, reviewResult, err := agentRunner.RunWithReview(ctx, job.Prompt, reviewCfg)
 	if err != nil {
 		return err
 	}
@@ -208,11 +209,25 @@ func executeJob(ctx context.Context, job *state.Job, agentRunner *agent.Agent, d
 		"output_tokens", runResult.TotalOutputTokens,
 	)
 
+	if reviewResult != nil {
+		slog.Info("review completed",
+			"job_id", job.JobID,
+			"passed", reviewResult.Passed,
+			"revisions", reviewResult.Revisions,
+			"reviews", len(reviewResult.Reviews),
+		)
+
+		// Save review results as artifact (best-effort)
+		if storageClient != nil {
+			saveReviewArtifact(ctx, job.JobID, reviewResult, storageClient)
+		}
+	}
+
 	switch agentResp.Type {
 	case agent.ResponseTypeCode:
-		return executeCodeJob(ctx, job, *agentResp, defaultGithubOwner, discordClient, githubClient, storageClient)
+		return executeCodeJob(ctx, job, *agentResp, reviewResult, defaultGithubOwner, discordClient, githubClient, storageClient)
 	case agent.ResponseTypeNewRepo:
-		return executeNewRepoJob(ctx, job, *agentResp, discordClient, githubClient, storageClient)
+		return executeNewRepoJob(ctx, job, *agentResp, reviewResult, discordClient, githubClient, storageClient)
 	case agent.ResponseTypeFile:
 		if len(agentResp.Files) == 0 {
 			slog.Warn("file response has no files, falling back to text", "job_id", job.JobID)
@@ -235,7 +250,7 @@ func executeTextJob(ctx context.Context, job *state.Job, content string, discord
 	return nil
 }
 
-func executeCodeJob(ctx context.Context, job *state.Job, resp agent.AgentResponse, owner string, discordClient *discord.Client, githubClient *github.Client, storageClient *storage.Client) error {
+func executeCodeJob(ctx context.Context, job *state.Job, resp agent.AgentResponse, reviewResult *agent.ReviewLoopResult, owner string, discordClient *discord.Client, githubClient *github.Client, storageClient *storage.Client) error {
 	if githubClient == nil {
 		return fmt.Errorf("code generation requested but GitHub client is not configured")
 	}
@@ -264,10 +279,13 @@ func executeCodeJob(ctx context.Context, job *state.Job, resp agent.AgentRespons
 	// 3. Notify Discord
 	message := fmt.Sprintf("PRを作成しました: %s\n\n**%s**\n%s\n\n変更ファイル: %s",
 		pr.URL, resp.Title, resp.Description, formatFilePaths(resp.Files))
+	if reviewResult != nil {
+		message += "\n\n" + formatReviewSummary(reviewResult)
+	}
 	return discordClient.SendResult(ctx, job.ApplicationID, job.InteractionToken, job.ChannelID, message)
 }
 
-func executeNewRepoJob(ctx context.Context, job *state.Job, resp agent.AgentResponse, discordClient *discord.Client, githubClient *github.Client, storageClient *storage.Client) error {
+func executeNewRepoJob(ctx context.Context, job *state.Job, resp agent.AgentResponse, reviewResult *agent.ReviewLoopResult, discordClient *discord.Client, githubClient *github.Client, storageClient *storage.Client) error {
 	if githubClient == nil {
 		return fmt.Errorf("new repo requested but GitHub client is not configured")
 	}
@@ -325,6 +343,9 @@ func executeNewRepoJob(ctx context.Context, job *state.Job, resp agent.AgentResp
 	// 4. Notify Discord
 	message := fmt.Sprintf("リポジトリを作成しました: %s\nPRを作成しました: %s\n\n**%s**\n%s\n\n変更ファイル: %s",
 		repoResult.HTMLURL, pr.URL, resp.Title, resp.Description, formatFilePaths(resp.Files))
+	if reviewResult != nil {
+		message += "\n\n" + formatReviewSummary(reviewResult)
+	}
 	return discordClient.SendResult(ctx, job.ApplicationID, job.InteractionToken, job.ChannelID, message)
 }
 
@@ -453,6 +474,36 @@ func formatFilePaths(files []agent.OutputFile) string {
 		}
 	}
 	return strings.Join(names, ", ")
+}
+
+func formatReviewSummary(result *agent.ReviewLoopResult) string {
+	if len(result.Reviews) == 0 {
+		return ""
+	}
+	lastReview := result.Reviews[len(result.Reviews)-1]
+	status := "PASS"
+	if !result.Passed {
+		status = "WARN"
+	}
+	return fmt.Sprintf("[Review %s] スコア: 正確性=%.1f / セキュリティ=%.1f / 保守性=%.1f / 完全性=%.1f (修正回数: %d)",
+		status,
+		lastReview.Scores.Correctness,
+		lastReview.Scores.Security,
+		lastReview.Scores.Maintainability,
+		lastReview.Scores.Completeness,
+		result.Revisions,
+	)
+}
+
+func saveReviewArtifact(ctx context.Context, jobID string, result *agent.ReviewLoopResult, storageClient *storage.Client) {
+	data, err := json.Marshal(result)
+	if err != nil {
+		slog.Warn("failed to marshal review result", "error", err)
+		return
+	}
+	if err := storageClient.UploadArtifact(ctx, jobID, "review_result.json", data); err != nil {
+		slog.Warn("failed to upload review artifact", "error", err, "job_id", jobID)
+	}
 }
 
 func runHeartbeat(ctx context.Context, store *state.Store, jobID, workerID string) {

@@ -91,7 +91,7 @@ Agent Engine (Go binary)
 ### 5. ECS Fargate — Worker
 
 - One-shot task execution (no ECS Service, no long-running container)
-- Container: distroless base + Go binary + ca-certificates
+- Container: debian:12-slim base + Go binary + ca-certificates + wkhtmltopdf
 - On startup:
   1. Acquire lock via DynamoDB conditional write
   2. Load job state from DynamoDB
@@ -116,7 +116,7 @@ The core application running inside ECS. Responsibilities:
 ```
 Builder generates output
   ↓
-Reviewer evaluates (structured JSON: security, correctness, maintainability scores)
+Reviewer evaluates (structured JSON via tool_use: correctness, security, maintainability, completeness scores)
   ↓
 If score < threshold:
   Rewriter fixes flagged issues only
@@ -234,9 +234,9 @@ s3://nemuri-storage/
 
 ### 9. GitHub Integration
 
-- Use GitHub App (not personal access tokens) for security
+- Use Fine-grained Personal Access Token (see KNOWLEDGE.md for rationale)
 - Operations: create repos, push code, create PRs
-- Code deliverables are pushed to feature branches (`feature/{job_id}`)
+- Code deliverables are pushed to feature branches (`nemuri/{job_id}`)
 - PR merge requires human approval (via Discord notification + GitHub UI)
 
 ### 10. Discord Notifications
