@@ -16,6 +16,11 @@ import (
 const (
 	maxRetries       = 5
 	initialBackoffMs = 1000 // 1 second
+
+	// Proactive rate limit thresholds: sleep until reset if remaining drops below these.
+	rateLimitTokenThreshold   = 1000
+	rateLimitRequestThreshold = 2
+	rateLimitMaxWait          = 60 * time.Second // cap proactive sleep to avoid excessive blocking
 )
 
 const (
@@ -140,6 +145,16 @@ func (c *ClaudeClient) SendMessage(ctx context.Context, systemPrompt string, mes
 		}
 
 		if resp.StatusCode == http.StatusOK {
+			// Proactive rate limit avoidance: if remaining tokens/requests are low,
+			// sleep until the reset time before returning.
+			if wait := rateLimitWait(resp.Header); wait > 0 {
+				slog.Info("proactive rate limit sleep", "wait_sec", wait.Seconds())
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(wait):
+				}
+			}
 			break
 		}
 
@@ -224,6 +239,48 @@ func (c *ClaudeClient) SendMessage(ctx context.Context, systemPrompt string, mes
 	}
 
 	return &Response{Content: text, RawContent: rawContent, Usage: usage}, nil
+}
+
+// rateLimitWait checks the Anthropic rate limit headers on a successful response.
+// If any of the remaining counters (input tokens, output tokens, requests) are below
+// their threshold, it returns the duration to wait until the corresponding reset time.
+// Returns 0 if no waiting is needed.
+func rateLimitWait(h http.Header) time.Duration {
+	type limit struct {
+		remaining string
+		reset     string
+		threshold int
+	}
+	limits := []limit{
+		{"anthropic-ratelimit-input-tokens-remaining", "anthropic-ratelimit-input-tokens-reset", rateLimitTokenThreshold},
+		{"anthropic-ratelimit-output-tokens-remaining", "anthropic-ratelimit-output-tokens-reset", rateLimitTokenThreshold},
+		{"anthropic-ratelimit-requests-remaining", "anthropic-ratelimit-requests-reset", rateLimitRequestThreshold},
+	}
+
+	var maxWait time.Duration
+	for _, l := range limits {
+		remStr := h.Get(l.remaining)
+		if remStr == "" {
+			continue
+		}
+		rem, err := strconv.Atoi(remStr)
+		if err != nil || rem >= l.threshold {
+			continue
+		}
+
+		resetStr := h.Get(l.reset)
+		if resetStr == "" {
+			continue
+		}
+		resetAt, err := time.Parse(time.RFC3339, resetStr)
+		if err != nil {
+			continue
+		}
+		if wait := time.Until(resetAt); wait > maxWait {
+			maxWait = min(wait, rateLimitMaxWait)
+		}
+	}
+	return maxWait
 }
 
 // retryBackoff calculates the wait duration for a retry attempt.

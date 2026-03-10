@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/nemuri/nemuri/internal/github"
 	"github.com/nemuri/nemuri/internal/llm"
@@ -14,8 +15,9 @@ const (
 	maxToolIterations    = 20
 	maxOutputTokens      = 32768
 	perCallMaxTokens     = 16384
-	keepRecentIterations = 3    // number of recent iterations to keep full tool results
-	trimContentThreshold = 500  // tool results shorter than this are always kept
+	keepRecentIterations = 3   // number of recent iterations to keep full tool results
+	trimContentThreshold = 500 // tool results shorter than this are always kept
+	trimPreviewLines     = 20  // number of lines to keep as preview in trimmed content
 )
 
 // Agent orchestrates LLM calls with a tool loop.
@@ -209,8 +211,9 @@ func (a *Agent) execReadRepoFile(ctx context.Context, inputJSON string) (string,
 	return string(content), nil
 }
 
-// trimConversation replaces large tool result content from older iterations with summaries.
-// This prevents the conversation from growing unboundedly as more files are read.
+// trimConversation replaces large tool result content from older iterations with previews.
+// This prevents the conversation from growing unboundedly as more files are read,
+// while preserving the first trimPreviewLines lines so the LLM retains partial context.
 //
 // Conversation structure: [user_prompt, assistant1, tool_results1, assistant2, tool_results2, ...]
 // Each iteration adds 2 messages (assistant + tool_results), so iteration index maps to message pairs.
@@ -252,7 +255,7 @@ func trimConversation(messages []llm.Message, currentIteration int) []llm.Messag
 				newResults = append(newResults, llm.ToolResultBlock{
 					Type:      r.Type,
 					ToolUseID: r.ToolUseID,
-					Content:   fmt.Sprintf("[content omitted: ~%d chars]", len(r.Content)),
+					Content:   trimLargeContent(r.Content),
 				})
 				changed = true
 			} else {
@@ -265,4 +268,19 @@ func trimConversation(messages []llm.Message, currentIteration int) []llm.Messag
 	}
 
 	return trimmed
+}
+
+// trimLargeContent keeps the first trimPreviewLines lines of content as a preview,
+// appending metadata about the total size so the LLM knows how much was omitted.
+func trimLargeContent(content string) string {
+	lines := strings.Split(content, "\n")
+	totalLines := len(lines)
+
+	if totalLines <= trimPreviewLines {
+		return content
+	}
+
+	preview := strings.Join(lines[:trimPreviewLines], "\n")
+	return fmt.Sprintf("%s\n\n[... trimmed: showing first %d of %d lines, %d chars total]",
+		preview, trimPreviewLines, totalLines, len(content))
 }
