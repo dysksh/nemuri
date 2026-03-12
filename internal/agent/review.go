@@ -11,9 +11,9 @@ import (
 
 // Review loop constants.
 const (
-	DefaultMaxRevisions         = 10
+	DefaultMaxRevisions         = 3
 	DefaultPassThreshold        = 7.0
-	DefaultMinImprovementRounds = 3
+	DefaultMinImprovementRounds = 2
 	DefaultMinImprovement       = 0.1
 	DefaultMaxSameIssueCount    = 3
 )
