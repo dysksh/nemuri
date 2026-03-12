@@ -38,6 +38,7 @@ type Job struct {
 	Version     int    `dynamodbav:"version"`
 
 	Prompt       string `dynamodbav:"prompt"`
+	UserResponse string `dynamodbav:"user_response,omitempty"`
 	ErrorMessage string `dynamodbav:"error_message,omitempty"`
 
 	CreatedAt int64 `dynamodbav:"created_at"`
@@ -50,6 +51,7 @@ type DynamoDBAPI interface {
 	PutItem(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)
 	GetItem(ctx context.Context, params *dynamodb.GetItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
 	UpdateItem(ctx context.Context, params *dynamodb.UpdateItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error)
+	Query(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error)
 }
 
 // Store manages job state in DynamoDB.
@@ -254,6 +256,160 @@ func (s *Store) MarkDone(ctx context.Context, jobID, workerID string, currentVer
 		return fmt.Errorf("mark done for job %s: %w", jobID, err)
 	}
 	return nil
+}
+
+// MarkWaitingUserInput transitions the job to WAITING_USER_INPUT, sets thread_id,
+// and removes worker_id/heartbeat_at so the next ECS task can acquire the lock.
+func (s *Store) MarkWaitingUserInput(ctx context.Context, jobID, workerID string, currentVersion int, threadID string) error {
+	if err := ValidateTransition(StateRunning, StateWaitingUserInput); err != nil {
+		return err
+	}
+
+	now := time.Now().Unix()
+
+	_, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+		TableName: aws.String(s.tableName),
+		Key: map[string]types.AttributeValue{
+			"job_id": &types.AttributeValueMemberS{Value: jobID},
+		},
+		UpdateExpression:    aws.String("SET #state = :waiting, thread_id = :tid, version = :new_version, updated_at = :now REMOVE worker_id, heartbeat_at"),
+		ConditionExpression: aws.String("worker_id = :wid AND version = :v"),
+		ExpressionAttributeNames: map[string]string{
+			"#state": "state",
+		},
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":waiting":     &types.AttributeValueMemberS{Value: string(StateWaitingUserInput)},
+			":tid":         &types.AttributeValueMemberS{Value: threadID},
+			":new_version": &types.AttributeValueMemberN{Value: strconv.Itoa(currentVersion + 1)},
+			":now":         &types.AttributeValueMemberN{Value: strconv.FormatInt(now, 10)},
+			":wid":         &types.AttributeValueMemberS{Value: workerID},
+			":v":           &types.AttributeValueMemberN{Value: strconv.Itoa(currentVersion)},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("mark waiting user input for job %s: %w", jobID, err)
+	}
+	return nil
+}
+
+// MarkWaitingApproval transitions the job to WAITING_APPROVAL via READY_FOR_PR,
+// and removes worker_id/heartbeat_at.
+func (s *Store) MarkWaitingApproval(ctx context.Context, jobID, workerID string, currentVersion int, threadID string) error {
+	now := time.Now().Unix()
+
+	updateExpr := "SET #state = :approval, version = :new_version, updated_at = :now REMOVE worker_id, heartbeat_at"
+	exprValues := map[string]types.AttributeValue{
+		":approval":    &types.AttributeValueMemberS{Value: string(StateWaitingApproval)},
+		":new_version": &types.AttributeValueMemberN{Value: strconv.Itoa(currentVersion + 1)},
+		":now":         &types.AttributeValueMemberN{Value: strconv.FormatInt(now, 10)},
+		":wid":         &types.AttributeValueMemberS{Value: workerID},
+		":v":           &types.AttributeValueMemberN{Value: strconv.Itoa(currentVersion)},
+	}
+
+	if threadID != "" {
+		updateExpr = "SET #state = :approval, thread_id = :tid, version = :new_version, updated_at = :now REMOVE worker_id, heartbeat_at"
+		exprValues[":tid"] = &types.AttributeValueMemberS{Value: threadID}
+	}
+
+	_, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+		TableName: aws.String(s.tableName),
+		Key: map[string]types.AttributeValue{
+			"job_id": &types.AttributeValueMemberS{Value: jobID},
+		},
+		UpdateExpression:    aws.String(updateExpr),
+		ConditionExpression: aws.String("worker_id = :wid AND version = :v"),
+		ExpressionAttributeNames: map[string]string{
+			"#state": "state",
+		},
+		ExpressionAttributeValues: exprValues,
+	})
+	if err != nil {
+		return fmt.Errorf("mark waiting approval for job %s: %w", jobID, err)
+	}
+	return nil
+}
+
+// SetUserResponse saves the user's response and the new interaction token on a WAITING_USER_INPUT job.
+// The interaction token is updated so the ECS task can follow up the resume command's deferred ACK.
+// This is called by the Ingress Lambda before enqueuing the resume message.
+func (s *Store) SetUserResponse(ctx context.Context, jobID, userResponse, interactionToken string) error {
+	now := time.Now().Unix()
+
+	_, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+		TableName: aws.String(s.tableName),
+		Key: map[string]types.AttributeValue{
+			"job_id": &types.AttributeValueMemberS{Value: jobID},
+		},
+		UpdateExpression:    aws.String("SET user_response = :resp, interaction_token = :token, updated_at = :now"),
+		ConditionExpression: aws.String("#state = :waiting"),
+		ExpressionAttributeNames: map[string]string{
+			"#state": "state",
+		},
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":resp":    &types.AttributeValueMemberS{Value: userResponse},
+			":token":   &types.AttributeValueMemberS{Value: interactionToken},
+			":waiting": &types.AttributeValueMemberS{Value: string(StateWaitingUserInput)},
+			":now":     &types.AttributeValueMemberN{Value: strconv.FormatInt(now, 10)},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("set user response for job %s: %w", jobID, err)
+	}
+	return nil
+}
+
+// ApproveJob transitions a WAITING_APPROVAL job to DONE.
+// This is called by the Ingress Lambda when the user approves.
+func (s *Store) ApproveJob(ctx context.Context, jobID string) error {
+	now := time.Now().Unix()
+
+	_, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+		TableName: aws.String(s.tableName),
+		Key: map[string]types.AttributeValue{
+			"job_id": &types.AttributeValueMemberS{Value: jobID},
+		},
+		UpdateExpression:    aws.String("SET #state = :done, version = version + :one, updated_at = :now"),
+		ConditionExpression: aws.String("#state = :approval"),
+		ExpressionAttributeNames: map[string]string{
+			"#state": "state",
+		},
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":done":     &types.AttributeValueMemberS{Value: string(StateDone)},
+			":approval": &types.AttributeValueMemberS{Value: string(StateWaitingApproval)},
+			":one":      &types.AttributeValueMemberN{Value: "1"},
+			":now":      &types.AttributeValueMemberN{Value: strconv.FormatInt(now, 10)},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("approve job %s: %w", jobID, err)
+	}
+	return nil
+}
+
+// QueryByThreadID looks up a job by Discord thread ID using the GSI.
+// Returns nil if no job is found for the given thread_id.
+func (s *Store) QueryByThreadID(ctx context.Context, threadID string) (*Job, error) {
+	out, err := s.client.Query(ctx, &dynamodb.QueryInput{
+		TableName:              aws.String(s.tableName),
+		IndexName:              aws.String("thread_id-index"),
+		KeyConditionExpression: aws.String("thread_id = :tid"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":tid": &types.AttributeValueMemberS{Value: threadID},
+		},
+		Limit: aws.Int32(1),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query by thread_id %s: %w", threadID, err)
+	}
+	if len(out.Items) == 0 {
+		return nil, nil
+	}
+
+	var job Job
+	if err := attributevalue.UnmarshalMap(out.Items[0], &job); err != nil {
+		return nil, fmt.Errorf("unmarshal job: %w", err)
+	}
+	return &job, nil
 }
 
 // MarkFailed transitions the job to FAILED and removes the worker_id.

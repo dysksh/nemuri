@@ -30,6 +30,9 @@ type Agent struct {
 // RunResult holds the agent response and cumulative token usage.
 type RunResult struct {
 	Response          *AgentResponse
+	Question          string        // non-empty if agent wants to ask user a question
+	Messages          []llm.Message // conversation context (for save/resume)
+	PendingToolCallID string        // tool_use ID for the question (for resume)
 	TotalInputTokens  int
 	TotalOutputTokens int
 	Iterations        int
@@ -44,6 +47,17 @@ func New(llmClient llm.Client, githubClient *github.Client, defaultOwner string)
 // then calls deliver_result to produce the final response.
 func (a *Agent) Run(ctx context.Context, prompt string) (*RunResult, error) {
 	messages := []llm.Message{{Role: "user", Content: prompt}}
+	return a.runLoop(ctx, messages)
+}
+
+// Resume continues the agent loop from saved conversation state.
+// The messages should include the full prior conversation plus the tool_result
+// containing the user's answer.
+func (a *Agent) Resume(ctx context.Context, messages []llm.Message) (*RunResult, error) {
+	return a.runLoop(ctx, messages)
+}
+
+func (a *Agent) runLoop(ctx context.Context, messages []llm.Message) (*RunResult, error) {
 	opts := a.buildSendOptions()
 
 	var totalInput, totalOutput int
@@ -89,7 +103,7 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*RunResult, error) {
 			return result, nil
 		}
 
-		// Check if deliver_result is among the tool calls
+		// Check if deliver_result or ask_user_question is among the tool calls
 		for _, tc := range resp.ToolCalls {
 			if tc.Name == toolName {
 				var agentResp AgentResponse
@@ -98,6 +112,28 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*RunResult, error) {
 				}
 				result := &RunResult{
 					Response:          &agentResp,
+					TotalInputTokens:  totalInput,
+					TotalOutputTokens: totalOutput,
+					Iterations:        i + 1,
+				}
+				return result, nil
+			}
+
+			if tc.Name == askToolName {
+				var askInput struct {
+					Question string `json:"question"`
+				}
+				if err := json.Unmarshal([]byte(tc.InputJSON), &askInput); err != nil {
+					return nil, fmt.Errorf("parse ask_user_question: %w", err)
+				}
+
+				// Save conversation context including the assistant's ask message
+				messages = append(messages, resp.AssistantMessage())
+
+				result := &RunResult{
+					Question:          askInput.Question,
+					PendingToolCallID: tc.ID,
+					Messages:          messages,
 					TotalInputTokens:  totalInput,
 					TotalOutputTokens: totalOutput,
 					Iterations:        i + 1,

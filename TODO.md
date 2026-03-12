@@ -74,12 +74,12 @@
 
 ## Phase 8: User Interaction
 
-- [ ] Implement WAITING_USER_INPUT state and ECS graceful exit
-- [ ] Implement Discord question posting to job thread
-- [ ] Update Ingress Lambda: detect thread_id → look up job → enqueue resume
-- [ ] Implement ECS resume from saved state
-- [ ] Implement WAITING_APPROVAL state for PR merge flow
-- [ ] Test: agent asks question → user answers → agent resumes and completes
+- [x] Implement WAITING_USER_INPUT state and ECS graceful exit
+- [x] Implement Discord question posting to job thread
+- [x] Update Ingress Lambda: detect thread_id → look up job → enqueue resume
+- [x] Implement ECS resume from saved state
+- [x] Implement WAITING_APPROVAL state for PR merge flow
+- [x] Test: agent asks question → user answers → agent resumes and completes
 
 ## Future (Post-MVP)
 
