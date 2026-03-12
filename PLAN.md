@@ -111,12 +111,12 @@ Terraform implementation order (follows dependency graph):
 
 **Goal**: Agent can ask questions and wait for user input.
 
-- [ ] Implement WAITING_USER_INPUT state transition
-- [ ] ECS posts question to Discord thread → saves state → exits
-- [ ] Ingress Lambda: detect thread_id → look up job → enqueue resume message
-- [ ] New ECS task resumes from saved state
-- [ ] Implement WAITING_APPROVAL for PR merge
-- [ ] Verify: agent asks question → user answers → agent resumes
+- [x] Implement WAITING_USER_INPUT state transition
+- [x] ECS posts question to Discord thread → saves state → exits
+- [x] Ingress Lambda: detect thread_id → look up job → enqueue resume message
+- [x] New ECS task resumes from saved state
+- [x] Implement WAITING_APPROVAL for PR merge
+- [x] Verify: agent asks question → user answers → agent resumes
 
 ## Future Phases (Post-MVP)
 

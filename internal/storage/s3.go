@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"path"
 	"strings"
 	"time"
@@ -88,6 +89,27 @@ func buildKey(prefix, jobID, filename string) (string, error) {
 		return "", fmt.Errorf("invalid filename: %w", err)
 	}
 	return fmt.Sprintf("%s/%s/%s", prefix, safeJobID, safeName), nil
+}
+
+// DownloadArtifact downloads a file from the artifacts prefix.
+func (c *Client) DownloadArtifact(ctx context.Context, jobID, filename string) ([]byte, error) {
+	key, err := buildKey("artifacts", jobID, filename)
+	if err != nil {
+		return nil, err
+	}
+	out, err := c.s3Client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(c.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("download %s: %w", key, err)
+	}
+	defer out.Body.Close()
+	data, err := io.ReadAll(out.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", key, err)
+	}
+	return data, nil
 }
 
 func (c *Client) upload(ctx context.Context, key string, data []byte) error {

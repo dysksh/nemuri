@@ -145,7 +145,6 @@ func handler(ctx context.Context, req events.APIGatewayV2HTTPRequest) (events.AP
 }
 
 func handleApplicationCommand(ctx context.Context, interaction discordInteraction) (events.APIGatewayV2HTTPResponse, error) {
-	// Extract prompt from command options
 	prompt := extractPrompt(interaction)
 	if prompt == "" {
 		slog.Warn("no prompt provided")
@@ -155,10 +154,29 @@ func handleApplicationCommand(ctx context.Context, interaction discordInteractio
 		})
 	}
 
-	// Generate job ID
+	// Check if this is an "approve" command in a thread with a waiting job
+	if strings.TrimSpace(strings.ToLower(prompt)) == "approve" {
+		return handleApprove(ctx, interaction)
+	}
+
+	// Check if this channel_id is a thread with a waiting job
+	existingJob, err := jobStore.QueryByThreadID(ctx, interaction.ChannelID)
+	if err != nil {
+		slog.Warn("failed to query by thread_id", "error", err, "channel_id", interaction.ChannelID)
+		// Fall through to create a new job
+	}
+
+	if existingJob != nil && existingJob.State == state.StateWaitingUserInput {
+		return handleResume(ctx, interaction, existingJob, prompt)
+	}
+
+	// Normal flow: create a new job
+	return handleNewJob(ctx, interaction, prompt)
+}
+
+func handleNewJob(ctx context.Context, interaction discordInteraction, prompt string) (events.APIGatewayV2HTTPResponse, error) {
 	jobID := uuid.New().String()
 
-	// Create job record in DynamoDB (state=INIT)
 	err := jobStore.CreateJob(ctx, state.CreateJobInput{
 		JobID:            jobID,
 		Prompt:           prompt,
@@ -174,7 +192,6 @@ func handleApplicationCommand(ctx context.Context, interaction discordInteractio
 		})
 	}
 
-	// Build SQS message
 	msg := sqsJobMessage{
 		JobID:            jobID,
 		Prompt:           prompt,
@@ -189,7 +206,6 @@ func handleApplicationCommand(ctx context.Context, interaction discordInteractio
 		return respond(http.StatusInternalServerError, `{"error":"internal server error"}`)
 	}
 
-	// Send to SQS
 	_, err = sqsClient.SendMessage(ctx, &sqs.SendMessageInput{
 		QueueUrl:    aws.String(sqsQueueURL),
 		MessageBody: aws.String(string(msgBytes)),
@@ -204,9 +220,101 @@ func handleApplicationCommand(ctx context.Context, interaction discordInteractio
 
 	slog.Info("job enqueued", "job_id", jobID, "prompt", prompt)
 
-	// Return deferred ACK (type=5) — Discord shows "Bot is thinking..."
 	return respondJSON(http.StatusOK, discordResponse{
 		Type: ResponseTypeDeferredChannelMessageWithSource,
+	})
+}
+
+func handleResume(ctx context.Context, interaction discordInteraction, existingJob *state.Job, userResponse string) (events.APIGatewayV2HTTPResponse, error) {
+	if strings.TrimSpace(userResponse) == "" {
+		return respondJSON(http.StatusOK, discordResponse{
+			Type: ResponseTypeChannelMessageWithSource,
+			Data: &discordResponseData{Content: "回答が空です。`/agent <回答>` の形式で入力してください。"},
+		})
+	}
+
+	slog.Info("resuming job with user response",
+		"job_id", existingJob.JobID,
+		"thread_id", interaction.ChannelID,
+		"user_response", userResponse,
+	)
+
+	// Save user response to DynamoDB
+	if err := jobStore.SetUserResponse(ctx, existingJob.JobID, userResponse, interaction.Token); err != nil {
+		slog.Error("failed to set user response", "error", err, "job_id", existingJob.JobID)
+		return respondJSON(http.StatusOK, discordResponse{
+			Type: ResponseTypeChannelMessageWithSource,
+			Data: &discordResponseData{Content: "回答の保存に失敗しました。しばらくしてから再度お試しください。"},
+		})
+	}
+
+	// Enqueue resume message to SQS.
+	// Note: ChannelID here is the thread ID (Discord sets channel_id to the thread ID
+	// for interactions within a thread). ECS reads the canonical ChannelID from DynamoDB,
+	// so this value is not used for routing — it's included for logging/diagnostics only.
+	msg := sqsJobMessage{
+		JobID:            existingJob.JobID,
+		Prompt:           existingJob.Prompt,
+		InteractionToken: interaction.Token,
+		ChannelID:        interaction.ChannelID,
+		ApplicationID:    interaction.ApplicationID,
+	}
+
+	msgBytes, err := json.Marshal(msg)
+	if err != nil {
+		slog.Error("failed to marshal SQS message", "error", err)
+		return respond(http.StatusInternalServerError, `{"error":"internal server error"}`)
+	}
+
+	_, err = sqsClient.SendMessage(ctx, &sqs.SendMessageInput{
+		QueueUrl:    aws.String(sqsQueueURL),
+		MessageBody: aws.String(string(msgBytes)),
+	})
+	if err != nil {
+		slog.Error("failed to send resume SQS message", "error", err, "job_id", existingJob.JobID)
+		return respondJSON(http.StatusOK, discordResponse{
+			Type: ResponseTypeChannelMessageWithSource,
+			Data: &discordResponseData{Content: "ジョブの再開に失敗しました。しばらくしてから再度お試しください。"},
+		})
+	}
+
+	slog.Info("resume job enqueued", "job_id", existingJob.JobID)
+
+	return respondJSON(http.StatusOK, discordResponse{
+		Type: ResponseTypeDeferredChannelMessageWithSource,
+	})
+}
+
+func handleApprove(ctx context.Context, interaction discordInteraction) (events.APIGatewayV2HTTPResponse, error) {
+	existingJob, err := jobStore.QueryByThreadID(ctx, interaction.ChannelID)
+	if err != nil {
+		slog.Warn("failed to query by thread_id for approve", "error", err, "channel_id", interaction.ChannelID)
+		return respondJSON(http.StatusOK, discordResponse{
+			Type: ResponseTypeChannelMessageWithSource,
+			Data: &discordResponseData{Content: "このスレッドに対応するジョブが見つかりませんでした。"},
+		})
+	}
+
+	if existingJob == nil || existingJob.State != state.StateWaitingApproval {
+		return respondJSON(http.StatusOK, discordResponse{
+			Type: ResponseTypeChannelMessageWithSource,
+			Data: &discordResponseData{Content: "承認待ちのジョブがありません。"},
+		})
+	}
+
+	if err := jobStore.ApproveJob(ctx, existingJob.JobID); err != nil {
+		slog.Error("failed to approve job", "error", err, "job_id", existingJob.JobID)
+		return respondJSON(http.StatusOK, discordResponse{
+			Type: ResponseTypeChannelMessageWithSource,
+			Data: &discordResponseData{Content: "ジョブの承認に失敗しました。"},
+		})
+	}
+
+	slog.Info("job approved", "job_id", existingJob.JobID)
+
+	return respondJSON(http.StatusOK, discordResponse{
+		Type: ResponseTypeChannelMessageWithSource,
+		Data: &discordResponseData{Content: fmt.Sprintf("ジョブを承認しました。(job_id: %s)", existingJob.JobID)},
 	})
 }
 

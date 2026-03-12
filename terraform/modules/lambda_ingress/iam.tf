@@ -46,15 +46,26 @@ resource "aws_iam_role_policy" "lambda_sqs" {
 
 data "aws_iam_policy_document" "lambda_dynamodb" {
   statement {
+    sid = "TableReadWrite"
     actions = [
       "dynamodb:PutItem",
+      "dynamodb:GetItem",
+      "dynamodb:UpdateItem",
     ]
     resources = [var.dynamodb_table_arn]
+  }
+
+  statement {
+    sid = "GSIQuery"
+    actions = [
+      "dynamodb:Query",
+    ]
+    resources = [var.dynamodb_gsi_thread_id_arn]
   }
 }
 
 resource "aws_iam_role_policy" "lambda_dynamodb" {
-  name   = "dynamodb-write"
+  name   = "dynamodb-readwrite"
   role   = aws_iam_role.lambda.id
   policy = data.aws_iam_policy_document.lambda_dynamodb.json
 }

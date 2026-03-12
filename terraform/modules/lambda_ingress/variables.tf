@@ -38,3 +38,8 @@ variable "dynamodb_table_arn" {
   description = "DynamoDB jobs table ARN"
   type        = string
 }
+
+variable "dynamodb_gsi_thread_id_arn" {
+  description = "DynamoDB jobs table thread_id GSI ARN"
+  type        = string
+}

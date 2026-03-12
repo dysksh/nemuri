@@ -18,10 +18,10 @@ const (
 // allowedTransitions defines the valid state transitions.
 var allowedTransitions = map[JobState][]JobState{
 	StateInit:             {StateRunning},
-	StateRunning:          {StateWaitingUserInput, StateReadyForPR, StateDone, StateFailed},
+	StateRunning:          {StateWaitingUserInput, StateReadyForPR, StateWaitingApproval, StateDone, StateFailed},
 	StateWaitingUserInput: {StateRunning},
 	StateReadyForPR:       {StateWaitingApproval},
-	StateWaitingApproval:  {StateDone},
+	StateWaitingApproval:  {StateDone, StateFailed},
 }
 
 // ValidateTransition checks if transitioning from `from` to `to` is allowed.

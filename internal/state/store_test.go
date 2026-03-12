@@ -15,6 +15,7 @@ type mockDynamoDB struct {
 	putItemFunc    func(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)
 	getItemFunc    func(ctx context.Context, params *dynamodb.GetItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
 	updateItemFunc func(ctx context.Context, params *dynamodb.UpdateItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error)
+	queryFunc      func(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error)
 }
 
 func (m *mockDynamoDB) PutItem(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
@@ -36,6 +37,13 @@ func (m *mockDynamoDB) UpdateItem(ctx context.Context, params *dynamodb.UpdateIt
 		return m.updateItemFunc(ctx, params, optFns...)
 	}
 	return &dynamodb.UpdateItemOutput{}, nil
+}
+
+func (m *mockDynamoDB) Query(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+	if m.queryFunc != nil {
+		return m.queryFunc(ctx, params, optFns...)
+	}
+	return &dynamodb.QueryOutput{}, nil
 }
 
 func TestCreateJob(t *testing.T) {
@@ -359,6 +367,371 @@ func TestMarkFailed(t *testing.T) {
 		err := store.MarkFailed(context.Background(), "job-1", "worker-1", "err", 1, state.StateRunning)
 		if err == nil {
 			t.Fatal("MarkFailed() expected error on DynamoDB failure")
+		}
+	})
+}
+
+func TestMarkWaitingUserInput(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		var capturedParams *dynamodb.UpdateItemInput
+		mock := &mockDynamoDB{
+			updateItemFunc: func(_ context.Context, params *dynamodb.UpdateItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
+				capturedParams = params
+				return &dynamodb.UpdateItemOutput{}, nil
+			},
+		}
+		store := state.NewStore(mock, "test-jobs")
+		err := store.MarkWaitingUserInput(context.Background(), "job-1", "worker-1", 1, "thread-123")
+		if err != nil {
+			t.Fatalf("MarkWaitingUserInput() error = %v", err)
+		}
+
+		// Verify state
+		stateVal := capturedParams.ExpressionAttributeValues[":waiting"].(*types.AttributeValueMemberS)
+		if stateVal.Value != string(state.StateWaitingUserInput) {
+			t.Errorf("state = %q, want %q", stateVal.Value, state.StateWaitingUserInput)
+		}
+		// Verify thread_id
+		tid := capturedParams.ExpressionAttributeValues[":tid"].(*types.AttributeValueMemberS)
+		if tid.Value != "thread-123" {
+			t.Errorf("thread_id = %q, want %q", tid.Value, "thread-123")
+		}
+		// Verify version is incremented
+		ver := capturedParams.ExpressionAttributeValues[":new_version"].(*types.AttributeValueMemberN)
+		if ver.Value != "2" {
+			t.Errorf("new_version = %q, want %q", ver.Value, "2")
+		}
+		// Verify worker_id condition
+		wid := capturedParams.ExpressionAttributeValues[":wid"].(*types.AttributeValueMemberS)
+		if wid.Value != "worker-1" {
+			t.Errorf("worker_id = %q, want %q", wid.Value, "worker-1")
+		}
+	})
+
+	t.Run("dynamo error", func(t *testing.T) {
+		mock := &mockDynamoDB{
+			updateItemFunc: func(_ context.Context, _ *dynamodb.UpdateItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
+				return nil, fmt.Errorf("connection refused")
+			},
+		}
+		store := state.NewStore(mock, "test-jobs")
+		err := store.MarkWaitingUserInput(context.Background(), "job-1", "worker-1", 1, "thread-1")
+		if err == nil {
+			t.Fatal("MarkWaitingUserInput() expected error on DynamoDB failure")
+		}
+	})
+}
+
+func TestMarkWaitingApproval(t *testing.T) {
+	t.Run("success with thread_id", func(t *testing.T) {
+		var capturedParams *dynamodb.UpdateItemInput
+		mock := &mockDynamoDB{
+			updateItemFunc: func(_ context.Context, params *dynamodb.UpdateItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
+				capturedParams = params
+				return &dynamodb.UpdateItemOutput{}, nil
+			},
+		}
+		store := state.NewStore(mock, "test-jobs")
+		err := store.MarkWaitingApproval(context.Background(), "job-1", "worker-1", 2, "thread-456")
+		if err != nil {
+			t.Fatalf("MarkWaitingApproval() error = %v", err)
+		}
+
+		// Verify state
+		stateVal := capturedParams.ExpressionAttributeValues[":approval"].(*types.AttributeValueMemberS)
+		if stateVal.Value != string(state.StateWaitingApproval) {
+			t.Errorf("state = %q, want %q", stateVal.Value, state.StateWaitingApproval)
+		}
+		// Verify thread_id is included
+		tid := capturedParams.ExpressionAttributeValues[":tid"].(*types.AttributeValueMemberS)
+		if tid.Value != "thread-456" {
+			t.Errorf("thread_id = %q, want %q", tid.Value, "thread-456")
+		}
+		// Verify version is incremented
+		ver := capturedParams.ExpressionAttributeValues[":new_version"].(*types.AttributeValueMemberN)
+		if ver.Value != "3" {
+			t.Errorf("new_version = %q, want %q", ver.Value, "3")
+		}
+	})
+
+	t.Run("success without thread_id", func(t *testing.T) {
+		var capturedParams *dynamodb.UpdateItemInput
+		mock := &mockDynamoDB{
+			updateItemFunc: func(_ context.Context, params *dynamodb.UpdateItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
+				capturedParams = params
+				return &dynamodb.UpdateItemOutput{}, nil
+			},
+		}
+		store := state.NewStore(mock, "test-jobs")
+		err := store.MarkWaitingApproval(context.Background(), "job-1", "worker-1", 1, "")
+		if err != nil {
+			t.Fatalf("MarkWaitingApproval() error = %v", err)
+		}
+
+		// Verify thread_id is NOT in expression values
+		if _, ok := capturedParams.ExpressionAttributeValues[":tid"]; ok {
+			t.Error("thread_id should not be set when empty")
+		}
+	})
+
+	t.Run("dynamo error", func(t *testing.T) {
+		mock := &mockDynamoDB{
+			updateItemFunc: func(_ context.Context, _ *dynamodb.UpdateItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
+				return nil, fmt.Errorf("connection refused")
+			},
+		}
+		store := state.NewStore(mock, "test-jobs")
+		err := store.MarkWaitingApproval(context.Background(), "job-1", "worker-1", 1, "thread-1")
+		if err == nil {
+			t.Fatal("MarkWaitingApproval() expected error on DynamoDB failure")
+		}
+	})
+}
+
+func TestSetUserResponse(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		var capturedParams *dynamodb.UpdateItemInput
+		mock := &mockDynamoDB{
+			updateItemFunc: func(_ context.Context, params *dynamodb.UpdateItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
+				capturedParams = params
+				return &dynamodb.UpdateItemOutput{}, nil
+			},
+		}
+		store := state.NewStore(mock, "test-jobs")
+		err := store.SetUserResponse(context.Background(), "job-1", "user answer", "new-token")
+		if err != nil {
+			t.Fatalf("SetUserResponse() error = %v", err)
+		}
+
+		// Verify user_response
+		resp := capturedParams.ExpressionAttributeValues[":resp"].(*types.AttributeValueMemberS)
+		if resp.Value != "user answer" {
+			t.Errorf("user_response = %q, want %q", resp.Value, "user answer")
+		}
+		// Verify interaction_token updated
+		token := capturedParams.ExpressionAttributeValues[":token"].(*types.AttributeValueMemberS)
+		if token.Value != "new-token" {
+			t.Errorf("interaction_token = %q, want %q", token.Value, "new-token")
+		}
+		// Verify state condition
+		waiting := capturedParams.ExpressionAttributeValues[":waiting"].(*types.AttributeValueMemberS)
+		if waiting.Value != string(state.StateWaitingUserInput) {
+			t.Errorf("condition state = %q, want %q", waiting.Value, state.StateWaitingUserInput)
+		}
+	})
+
+	t.Run("wrong state", func(t *testing.T) {
+		mock := &mockDynamoDB{
+			updateItemFunc: func(_ context.Context, _ *dynamodb.UpdateItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
+				return nil, &types.ConditionalCheckFailedException{Message: strPtr("condition failed")}
+			},
+		}
+		store := state.NewStore(mock, "test-jobs")
+		err := store.SetUserResponse(context.Background(), "job-1", "answer", "token")
+		if err == nil {
+			t.Fatal("SetUserResponse() expected error when job is not in WAITING_USER_INPUT state")
+		}
+	})
+}
+
+func TestApproveJob(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		var capturedParams *dynamodb.UpdateItemInput
+		mock := &mockDynamoDB{
+			updateItemFunc: func(_ context.Context, params *dynamodb.UpdateItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
+				capturedParams = params
+				return &dynamodb.UpdateItemOutput{}, nil
+			},
+		}
+		store := state.NewStore(mock, "test-jobs")
+		err := store.ApproveJob(context.Background(), "job-1")
+		if err != nil {
+			t.Fatalf("ApproveJob() error = %v", err)
+		}
+
+		// Verify state is set to DONE
+		doneVal := capturedParams.ExpressionAttributeValues[":done"].(*types.AttributeValueMemberS)
+		if doneVal.Value != string(state.StateDone) {
+			t.Errorf("state = %q, want %q", doneVal.Value, state.StateDone)
+		}
+		// Verify condition checks WAITING_APPROVAL
+		approval := capturedParams.ExpressionAttributeValues[":approval"].(*types.AttributeValueMemberS)
+		if approval.Value != string(state.StateWaitingApproval) {
+			t.Errorf("condition state = %q, want %q", approval.Value, state.StateWaitingApproval)
+		}
+	})
+
+	t.Run("wrong state", func(t *testing.T) {
+		mock := &mockDynamoDB{
+			updateItemFunc: func(_ context.Context, _ *dynamodb.UpdateItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
+				return nil, &types.ConditionalCheckFailedException{Message: strPtr("condition failed")}
+			},
+		}
+		store := state.NewStore(mock, "test-jobs")
+		err := store.ApproveJob(context.Background(), "job-1")
+		if err == nil {
+			t.Fatal("ApproveJob() expected error when job is not in WAITING_APPROVAL state")
+		}
+	})
+}
+
+func TestQueryByThreadID(t *testing.T) {
+	t.Run("found waiting job", func(t *testing.T) {
+		mock := &mockDynamoDB{
+			queryFunc: func(_ context.Context, params *dynamodb.QueryInput, _ ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+				if *params.IndexName != "thread_id-index" {
+					t.Errorf("index = %q, want %q", *params.IndexName, "thread_id-index")
+				}
+				return &dynamodb.QueryOutput{
+					Items: []map[string]types.AttributeValue{
+						{
+							"job_id":            &types.AttributeValueMemberS{Value: "job-1"},
+							"thread_id":         &types.AttributeValueMemberS{Value: "thread-1"},
+							"state":             &types.AttributeValueMemberS{Value: string(state.StateWaitingUserInput)},
+							"prompt":            &types.AttributeValueMemberS{Value: "test"},
+							"channel_id":        &types.AttributeValueMemberS{Value: "ch-1"},
+							"interaction_token": &types.AttributeValueMemberS{Value: "tok-1"},
+							"application_id":    &types.AttributeValueMemberS{Value: "app-1"},
+							"version":           &types.AttributeValueMemberN{Value: "2"},
+							"revision":          &types.AttributeValueMemberN{Value: "0"},
+							"created_at":        &types.AttributeValueMemberN{Value: "1700000000"},
+							"updated_at":        &types.AttributeValueMemberN{Value: "1700000000"},
+							"ttl":               &types.AttributeValueMemberN{Value: "1702592000"},
+						},
+					},
+				}, nil
+			},
+		}
+
+		store := state.NewStore(mock, "test-jobs")
+		job, err := store.QueryByThreadID(context.Background(), "thread-1")
+		if err != nil {
+			t.Fatalf("QueryByThreadID() error = %v", err)
+		}
+		if job == nil {
+			t.Fatal("QueryByThreadID() returned nil, want job")
+		}
+		if job.JobID != "job-1" {
+			t.Errorf("job.JobID = %q, want %q", job.JobID, "job-1")
+		}
+		if job.State != state.StateWaitingUserInput {
+			t.Errorf("job.State = %q, want %q", job.State, state.StateWaitingUserInput)
+		}
+	})
+
+	t.Run("skips terminal jobs and returns waiting one", func(t *testing.T) {
+		mock := &mockDynamoDB{
+			queryFunc: func(_ context.Context, _ *dynamodb.QueryInput, _ ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+				return &dynamodb.QueryOutput{
+					Items: []map[string]types.AttributeValue{
+						{
+							"job_id":            &types.AttributeValueMemberS{Value: "job-old"},
+							"thread_id":         &types.AttributeValueMemberS{Value: "thread-1"},
+							"state":             &types.AttributeValueMemberS{Value: string(state.StateDone)},
+							"prompt":            &types.AttributeValueMemberS{Value: "old"},
+							"channel_id":        &types.AttributeValueMemberS{Value: "ch-1"},
+							"interaction_token": &types.AttributeValueMemberS{Value: "tok-1"},
+							"application_id":    &types.AttributeValueMemberS{Value: "app-1"},
+							"version":           &types.AttributeValueMemberN{Value: "3"},
+							"revision":          &types.AttributeValueMemberN{Value: "0"},
+							"created_at":        &types.AttributeValueMemberN{Value: "1700000000"},
+							"updated_at":        &types.AttributeValueMemberN{Value: "1700000000"},
+							"ttl":               &types.AttributeValueMemberN{Value: "1702592000"},
+						},
+						{
+							"job_id":            &types.AttributeValueMemberS{Value: "job-active"},
+							"thread_id":         &types.AttributeValueMemberS{Value: "thread-1"},
+							"state":             &types.AttributeValueMemberS{Value: string(state.StateWaitingApproval)},
+							"prompt":            &types.AttributeValueMemberS{Value: "active"},
+							"channel_id":        &types.AttributeValueMemberS{Value: "ch-1"},
+							"interaction_token": &types.AttributeValueMemberS{Value: "tok-2"},
+							"application_id":    &types.AttributeValueMemberS{Value: "app-1"},
+							"version":           &types.AttributeValueMemberN{Value: "2"},
+							"revision":          &types.AttributeValueMemberN{Value: "0"},
+							"created_at":        &types.AttributeValueMemberN{Value: "1700000000"},
+							"updated_at":        &types.AttributeValueMemberN{Value: "1700000000"},
+							"ttl":               &types.AttributeValueMemberN{Value: "1702592000"},
+						},
+					},
+				}, nil
+			},
+		}
+
+		store := state.NewStore(mock, "test-jobs")
+		job, err := store.QueryByThreadID(context.Background(), "thread-1")
+		if err != nil {
+			t.Fatalf("QueryByThreadID() error = %v", err)
+		}
+		if job == nil {
+			t.Fatal("QueryByThreadID() returned nil, want active job")
+		}
+		if job.JobID != "job-active" {
+			t.Errorf("job.JobID = %q, want %q", job.JobID, "job-active")
+		}
+	})
+
+	t.Run("no jobs found", func(t *testing.T) {
+		mock := &mockDynamoDB{
+			queryFunc: func(_ context.Context, _ *dynamodb.QueryInput, _ ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+				return &dynamodb.QueryOutput{Items: []map[string]types.AttributeValue{}}, nil
+			},
+		}
+
+		store := state.NewStore(mock, "test-jobs")
+		job, err := store.QueryByThreadID(context.Background(), "thread-nonexistent")
+		if err != nil {
+			t.Fatalf("QueryByThreadID() error = %v", err)
+		}
+		if job != nil {
+			t.Errorf("QueryByThreadID() = %v, want nil", job)
+		}
+	})
+
+	t.Run("only terminal jobs", func(t *testing.T) {
+		mock := &mockDynamoDB{
+			queryFunc: func(_ context.Context, _ *dynamodb.QueryInput, _ ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+				return &dynamodb.QueryOutput{
+					Items: []map[string]types.AttributeValue{
+						{
+							"job_id":            &types.AttributeValueMemberS{Value: "job-done"},
+							"thread_id":         &types.AttributeValueMemberS{Value: "thread-1"},
+							"state":             &types.AttributeValueMemberS{Value: string(state.StateDone)},
+							"prompt":            &types.AttributeValueMemberS{Value: "done"},
+							"channel_id":        &types.AttributeValueMemberS{Value: "ch-1"},
+							"interaction_token": &types.AttributeValueMemberS{Value: "tok-1"},
+							"application_id":    &types.AttributeValueMemberS{Value: "app-1"},
+							"version":           &types.AttributeValueMemberN{Value: "3"},
+							"revision":          &types.AttributeValueMemberN{Value: "0"},
+							"created_at":        &types.AttributeValueMemberN{Value: "1700000000"},
+							"updated_at":        &types.AttributeValueMemberN{Value: "1700000000"},
+							"ttl":               &types.AttributeValueMemberN{Value: "1702592000"},
+						},
+					},
+				}, nil
+			},
+		}
+
+		store := state.NewStore(mock, "test-jobs")
+		job, err := store.QueryByThreadID(context.Background(), "thread-1")
+		if err != nil {
+			t.Fatalf("QueryByThreadID() error = %v", err)
+		}
+		if job != nil {
+			t.Errorf("QueryByThreadID() = %v, want nil (only terminal jobs)", job)
+		}
+	})
+
+	t.Run("dynamo error", func(t *testing.T) {
+		mock := &mockDynamoDB{
+			queryFunc: func(_ context.Context, _ *dynamodb.QueryInput, _ ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+				return nil, fmt.Errorf("connection refused")
+			},
+		}
+
+		store := state.NewStore(mock, "test-jobs")
+		_, err := store.QueryByThreadID(context.Background(), "thread-1")
+		if err == nil {
+			t.Fatal("QueryByThreadID() expected error on DynamoDB failure")
 		}
 	})
 }

@@ -35,7 +35,27 @@ const (
 	visibilityExtend  = 10 * time.Minute // must be > heartbeatInterval
 
 	branchJobIDLen = 8 // number of job ID characters used in branch names
+
+	conversationContextFile = "conversation_context.json"
 )
+
+// conversationContext is the saved state for resuming after a question.
+type conversationContext struct {
+	Messages          []llm.Message `json:"messages"`
+	PendingToolCallID string        `json:"pending_tool_call_id"`
+}
+
+// jobOutcome describes how a job execution ended.
+type jobOutcome struct {
+	// For question flow
+	question      string
+	messages      []llm.Message
+	pendingToolID string
+
+	// For PR flow
+	prCreated bool
+	threadID  string // thread created during execution (for WAITING_APPROVAL)
+}
 
 func main() {
 	jobID := os.Getenv("JOB_ID")
@@ -111,7 +131,7 @@ func main() {
 
 	workerID := uuid.New().String()
 
-	// 1. Acquire lock
+	// 1. Acquire lock (transitions INIT/FAILED/WAITING_USER_INPUT → RUNNING)
 	if err := store.AcquireLock(ctx, jobID, workerID); err != nil {
 		slog.Error("failed to acquire lock", "error", err, "job_id", jobID)
 		os.Exit(1)
@@ -147,21 +167,23 @@ func main() {
 	// 4. Execute job logic
 	agentRunner := agent.New(llmClient, githubClient, defaultGithubOwner)
 	reviewCfg := agent.DefaultReviewConfig()
-	jobErr := executeJob(ctx, job, agentRunner, reviewCfg, discordClient, githubClient, storageClient, defaultGithubOwner)
+
+	isResume := job.UserResponse != ""
+	outcome, jobErr := executeJob(ctx, job, isResume, agentRunner, reviewCfg, discordClient, githubClient, storageClient, defaultGithubOwner)
 
 	// 5. Stop heartbeat
 	heartbeatCancel()
 	wg.Wait()
 
-	// 6. Update final state
+	// 6. Handle outcome
 	if jobErr != nil {
 		slog.Error("job failed", "error", jobErr, "job_id", jobID)
 		if err := store.MarkFailed(ctx, jobID, workerID, jobErr.Error(), job.Version, job.State); err != nil {
 			slog.Error("failed to mark job as failed", "error", err, "job_id", jobID)
 		}
-		// Notify user of failure (do not expose internal error details)
-		if notifyErr := discordClient.SendResult(ctx, job.ApplicationID, job.InteractionToken, job.ChannelID,
-			"ジョブの実行中にエラーが発生しました。管理者にお問い合わせください。(job_id: "+jobID+")"); notifyErr != nil {
+		notifyErr := discordClient.SendResult(ctx, job.ApplicationID, job.InteractionToken, job.ChannelID,
+			"ジョブの実行中にエラーが発生しました。管理者にお問い合わせください。(job_id: "+jobID+")")
+		if notifyErr != nil {
 			slog.Error("failed to send error notification to Discord", "error", notifyErr, "job_id", jobID)
 		}
 		os.Exit(1)
@@ -174,30 +196,136 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Handle question: save context, create thread, transition to WAITING_USER_INPUT
+	if outcome != nil && outcome.question != "" {
+		if err := handleQuestionOutcome(ctx, job, workerID, outcome, store, discordClient, storageClient); err != nil {
+			slog.Error("failed to handle question outcome", "error", err, "job_id", jobID)
+			_ = store.MarkFailed(ctx, jobID, workerID, err.Error(), job.Version, job.State)
+			os.Exit(1)
+		}
+		deleteSQSMessage(ctx, sqsClient, sqsQueueURL, sqsReceiptHandle, jobID)
+		slog.Info("agent-engine paused for user input", "job_id", jobID)
+		return
+	}
+
+	// Handle PR with WAITING_APPROVAL
+	if outcome != nil && outcome.prCreated {
+		threadID := outcome.threadID
+		if threadID == "" {
+			threadID = job.ThreadID
+		}
+		if err := store.MarkWaitingApproval(ctx, jobID, workerID, job.Version, threadID); err != nil {
+			slog.Error("failed to mark waiting approval", "error", err, "job_id", jobID)
+			os.Exit(1)
+		}
+		deleteSQSMessage(ctx, sqsClient, sqsQueueURL, sqsReceiptHandle, jobID)
+		slog.Info("agent-engine waiting for PR approval", "job_id", jobID)
+		return
+	}
+
+	// Normal completion
 	if err := store.MarkDone(ctx, jobID, workerID, job.Version, job.State); err != nil {
 		slog.Error("failed to mark job as done", "error", err, "job_id", jobID)
 		os.Exit(1)
 	}
-
-	// 7. Delete SQS message
-	if sqsReceiptHandle != "" && sqsQueueURL != "" {
-		if _, err := sqsClient.DeleteMessage(ctx, &sqs.DeleteMessageInput{
-			QueueUrl:      aws.String(sqsQueueURL),
-			ReceiptHandle: aws.String(sqsReceiptHandle),
-		}); err != nil {
-			slog.Error("failed to delete SQS message", "error", err, "job_id", jobID)
-		}
-	}
-
+	deleteSQSMessage(ctx, sqsClient, sqsQueueURL, sqsReceiptHandle, jobID)
 	slog.Info("agent-engine finished successfully", "job_id", jobID)
 }
 
-func executeJob(ctx context.Context, job *state.Job, agentRunner *agent.Agent, reviewCfg agent.ReviewConfig, discordClient *discord.Client, githubClient *github.Client, storageClient *storage.Client, defaultGithubOwner string) error {
-	slog.Info("executing job", "job_id", job.JobID, "prompt", job.Prompt)
-
-	runResult, reviewResult, err := agentRunner.RunWithReview(ctx, job.Prompt, reviewCfg)
+func handleQuestionOutcome(ctx context.Context, job *state.Job, workerID string, outcome *jobOutcome, store *state.Store, discordClient *discord.Client, storageClient *storage.Client) error {
+	// Save conversation context to S3
+	if storageClient == nil {
+		return fmt.Errorf("S3 storage not configured, cannot save conversation context")
+	}
+	convCtx := conversationContext{
+		Messages:          outcome.messages,
+		PendingToolCallID: outcome.pendingToolID,
+	}
+	data, err := json.Marshal(convCtx)
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal conversation context: %w", err)
+	}
+	if err := storageClient.UploadArtifact(ctx, job.JobID, conversationContextFile, data); err != nil {
+		return fmt.Errorf("save conversation context: %w", err)
+	}
+	slog.Info("conversation context saved", "job_id", job.JobID)
+
+	// Create Discord thread and post question
+	threadName := fmt.Sprintf("Nemuri: %s", truncateString(job.Prompt, 80))
+	questionMsg := fmt.Sprintf("**質問があります:**\n\n%s\n\n---\nこのスレッドで `/agent <回答>` と返信してください。", outcome.question)
+
+	threadID, err := discordClient.CreateThread(ctx, job.ChannelID, threadName, questionMsg)
+	if err != nil {
+		return fmt.Errorf("create Discord thread: %w", err)
+	}
+	slog.Info("Discord thread created", "job_id", job.JobID, "thread_id", threadID)
+
+	// Transition to WAITING_USER_INPUT
+	if err := store.MarkWaitingUserInput(ctx, job.JobID, workerID, job.Version, threadID); err != nil {
+		return fmt.Errorf("mark waiting user input: %w", err)
+	}
+
+	// Follow up the original deferred ACK to resolve "thinking..." message
+	followUpErr := discordClient.SendFollowUp(ctx, job.ApplicationID, job.InteractionToken,
+		"スレッドで質問しました。確認してください。")
+	if followUpErr != nil {
+		slog.Warn("failed to follow up original interaction", "error", followUpErr, "job_id", job.JobID)
+	}
+
+	return nil
+}
+
+func executeJob(ctx context.Context, job *state.Job, isResume bool, agentRunner *agent.Agent, reviewCfg agent.ReviewConfig, discordClient *discord.Client, githubClient *github.Client, storageClient *storage.Client, defaultGithubOwner string) (*jobOutcome, error) {
+	slog.Info("executing job", "job_id", job.JobID, "prompt", job.Prompt, "is_resume", isResume)
+
+	var runResult *agent.RunResult
+	var reviewResult *agent.ReviewLoopResult
+
+	if isResume {
+		slog.Info("resuming from saved state", "job_id", job.JobID, "user_response", job.UserResponse)
+
+		resumeResult, err := resumeAgent(ctx, job, agentRunner, storageClient)
+		if err != nil {
+			return nil, err
+		}
+
+		// Check if the resumed agent asked another question
+		if resumeResult.Question != "" {
+			return &jobOutcome{
+				question:      resumeResult.Question,
+				messages:      resumeResult.Messages,
+				pendingToolID: resumeResult.PendingToolCallID,
+			}, nil
+		}
+
+		// Run review on the result
+		runResult = resumeResult
+		switch runResult.Response.Type {
+		case agent.ResponseTypeCode, agent.ResponseTypeNewRepo:
+			loopResult, err := agentRunner.ReviewLoop(ctx, job.Prompt, runResult.Response, reviewCfg)
+			if err != nil {
+				return nil, err
+			}
+			runResult.Response = loopResult.Response
+			runResult.TotalInputTokens += loopResult.TotalInputTokens
+			runResult.TotalOutputTokens += loopResult.TotalOutputTokens
+			reviewResult = loopResult
+		}
+	} else {
+		var err error
+		runResult, reviewResult, err = agentRunner.RunWithReview(ctx, job.Prompt, reviewCfg)
+		if err != nil {
+			return nil, err
+		}
+
+		// Check if the agent asked a question (before review)
+		if runResult.Question != "" {
+			return &jobOutcome{
+				question:      runResult.Question,
+				messages:      runResult.Messages,
+				pendingToolID: runResult.PendingToolCallID,
+			}, nil
+		}
 	}
 
 	agentResp := runResult.Response
@@ -216,7 +344,6 @@ func executeJob(ctx context.Context, job *state.Job, agentRunner *agent.Agent, r
 			"revisions", reviewResult.Revisions,
 			"reviews", len(reviewResult.Reviews),
 		)
-
 		// Save review results as artifact (best-effort)
 		if storageClient != nil {
 			saveReviewArtifact(ctx, job.JobID, reviewResult, storageClient)
@@ -225,37 +352,83 @@ func executeJob(ctx context.Context, job *state.Job, agentRunner *agent.Agent, r
 
 	switch agentResp.Type {
 	case agent.ResponseTypeCode:
-		return executeCodeJob(ctx, job, *agentResp, reviewResult, defaultGithubOwner, discordClient, githubClient, storageClient)
+		threadID, err := executeCodeJob(ctx, job, *agentResp, reviewResult, defaultGithubOwner, discordClient, githubClient, storageClient)
+		if err != nil {
+			return nil, err
+		}
+		return &jobOutcome{prCreated: true, threadID: threadID}, nil
 	case agent.ResponseTypeNewRepo:
-		return executeNewRepoJob(ctx, job, *agentResp, reviewResult, discordClient, githubClient, storageClient)
+		threadID, err := executeNewRepoJob(ctx, job, *agentResp, reviewResult, discordClient, githubClient, storageClient)
+		if err != nil {
+			return nil, err
+		}
+		return &jobOutcome{prCreated: true, threadID: threadID}, nil
 	case agent.ResponseTypeFile:
 		if len(agentResp.Files) == 0 {
 			slog.Warn("file response has no files, falling back to text", "job_id", job.JobID)
-			return executeTextJob(ctx, job, agentResp.Content, discordClient)
+			return nil, executeTextJob(ctx, job, agentResp.Content, discordClient)
 		}
-		return executeFileJob(ctx, job, *agentResp, discordClient, storageClient)
+		return nil, executeFileJob(ctx, job, *agentResp, discordClient, storageClient)
 	default:
-		return executeTextJob(ctx, job, agentResp.Content, discordClient)
+		return nil, executeTextJob(ctx, job, agentResp.Content, discordClient)
 	}
+}
+
+func resumeAgent(ctx context.Context, job *state.Job, agentRunner *agent.Agent, storageClient *storage.Client) (*agent.RunResult, error) {
+	if storageClient == nil {
+		return nil, fmt.Errorf("S3 storage not configured, cannot load conversation context")
+	}
+
+	data, err := storageClient.DownloadArtifact(ctx, job.JobID, conversationContextFile)
+	if err != nil {
+		return nil, fmt.Errorf("load conversation context: %w", err)
+	}
+
+	var convCtx conversationContext
+	if err := json.Unmarshal(data, &convCtx); err != nil {
+		return nil, fmt.Errorf("unmarshal conversation context: %w", err)
+	}
+
+	// Append the user's answer as a tool_result for the pending ask_user_question call
+	toolResult := llm.ToolResultBlock{
+		Type:      "tool_result",
+		ToolUseID: convCtx.PendingToolCallID,
+		Content:   fmt.Sprintf("User responded: %s", job.UserResponse),
+	}
+	convCtx.Messages = append(convCtx.Messages, llm.NewToolResultsMessage([]llm.ToolResultBlock{toolResult}))
+
+	slog.Info("resuming agent with conversation context",
+		"job_id", job.JobID,
+		"messages", len(convCtx.Messages),
+		"pending_tool_id", convCtx.PendingToolCallID,
+	)
+
+	return agentRunner.Resume(ctx, convCtx.Messages)
 }
 
 func executeTextJob(ctx context.Context, job *state.Job, content string, discordClient *discord.Client) error {
 	if content == "" {
 		content = "（結果を生成できませんでした。リクエストの内容を変えて再度お試しください。）"
 	}
-	if err := discordClient.SendResult(ctx, job.ApplicationID, job.InteractionToken, job.ChannelID, content); err != nil {
+
+	// Use SendResult to deliver via follow-up (resolves deferred ACK) with fallback
+	channelID := job.ChannelID
+	if job.ThreadID != "" {
+		channelID = job.ThreadID
+	}
+	if err := discordClient.SendResult(ctx, job.ApplicationID, job.InteractionToken, channelID, content); err != nil {
 		return err
 	}
 	slog.Info("text result sent to Discord", "job_id", job.JobID)
 	return nil
 }
 
-func executeCodeJob(ctx context.Context, job *state.Job, resp agent.AgentResponse, reviewResult *agent.ReviewLoopResult, owner string, discordClient *discord.Client, githubClient *github.Client, storageClient *storage.Client) error {
+func executeCodeJob(ctx context.Context, job *state.Job, resp agent.AgentResponse, reviewResult *agent.ReviewLoopResult, owner string, discordClient *discord.Client, githubClient *github.Client, storageClient *storage.Client) (string, error) {
 	if githubClient == nil {
-		return fmt.Errorf("code generation requested but GitHub client is not configured")
+		return "", fmt.Errorf("code generation requested but GitHub client is not configured")
 	}
 	if owner == "" || resp.Repo == "" || len(resp.Files) == 0 {
-		return fmt.Errorf("code response missing required fields (owner, repo, or files)")
+		return "", fmt.Errorf("code response missing required fields (owner, repo, or files)")
 	}
 
 	branch := fmt.Sprintf("nemuri/%s", truncateJobID(job.JobID))
@@ -264,33 +437,41 @@ func executeCodeJob(ctx context.Context, job *state.Job, resp agent.AgentRespons
 	// 1. Get default branch and create feature branch
 	defaultBranch, err := githubClient.GetDefaultBranch(ctx, owner, resp.Repo)
 	if err != nil {
-		return fmt.Errorf("get default branch: %w", err)
+		return "", fmt.Errorf("get default branch: %w", err)
 	}
 	if err := githubClient.CreateBranch(ctx, owner, resp.Repo, defaultBranch, branch); err != nil {
-		return fmt.Errorf("create branch: %w", err)
+		return "", fmt.Errorf("create branch: %w", err)
 	}
 
 	// 2. Commit files and create PR
 	pr, err := commitAndCreatePR(ctx, job, resp, owner, defaultBranch, branch, githubClient, storageClient)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	// 3. Notify Discord
+	// 3. Create thread and notify
 	message := fmt.Sprintf("PRを作成しました: %s\n\n**%s**\n%s\n\n変更ファイル: %s",
 		pr.URL, resp.Title, resp.Description, formatFilePaths(resp.Files))
 	if reviewResult != nil {
 		message += "\n\n" + formatReviewSummary(reviewResult)
 	}
-	return discordClient.SendResult(ctx, job.ApplicationID, job.InteractionToken, job.ChannelID, message)
+	message += "\n\n---\nPRを確認してmergeしてください。完了したらこのスレッドで `/agent approve` と返信してください。"
+
+	threadID, err := createThreadAndNotify(ctx, job, message, discordClient)
+	if err != nil {
+		// Fall back to direct message if thread creation fails
+		slog.Warn("thread creation failed, sending direct message", "error", err)
+		_ = discordClient.SendResult(ctx, job.ApplicationID, job.InteractionToken, job.ChannelID, message)
+	}
+	return threadID, nil
 }
 
-func executeNewRepoJob(ctx context.Context, job *state.Job, resp agent.AgentResponse, reviewResult *agent.ReviewLoopResult, discordClient *discord.Client, githubClient *github.Client, storageClient *storage.Client) error {
+func executeNewRepoJob(ctx context.Context, job *state.Job, resp agent.AgentResponse, reviewResult *agent.ReviewLoopResult, discordClient *discord.Client, githubClient *github.Client, storageClient *storage.Client) (string, error) {
 	if githubClient == nil {
-		return fmt.Errorf("new repo requested but GitHub client is not configured")
+		return "", fmt.Errorf("new repo requested but GitHub client is not configured")
 	}
 	if resp.Repo == "" || len(resp.Files) == 0 {
-		return fmt.Errorf("new_repo response missing required fields (repo or files)")
+		return "", fmt.Errorf("new_repo response missing required fields (repo or files)")
 	}
 
 	slog.Info("creating new repository", "job_id", job.JobID, "repo", resp.Repo)
@@ -302,24 +483,24 @@ func executeNewRepoJob(ctx context.Context, job *state.Job, resp agent.AgentResp
 		Private:     true,
 	})
 	if err != nil {
-		return fmt.Errorf("create repo: %w", err)
+		return "", fmt.Errorf("create repo: %w", err)
 	}
 	slog.Info("repository created", "job_id", job.JobID, "full_name", repoResult.FullName)
 
 	// Extract owner/repo from the API result (e.g. "user/repo-name")
 	parts := strings.SplitN(repoResult.FullName, "/", 2)
 	if len(parts) != 2 {
-		return fmt.Errorf("unexpected repo full_name format: %s", repoResult.FullName)
+		return "", fmt.Errorf("unexpected repo full_name format: %s", repoResult.FullName)
 	}
 	owner, repo := parts[0], parts[1]
 
 	// rollbackRepo deletes the newly created repo on failure.
-	rollbackRepo := func(cause error) error {
+	rollbackRepo := func(cause error) (string, error) {
 		slog.Warn("rolling back repository creation", "owner", owner, "repo", repo, "cause", cause)
 		if delErr := githubClient.DeleteRepo(ctx, owner, repo); delErr != nil {
 			slog.Error("failed to delete repo during rollback", "error", delErr)
 		}
-		return cause
+		return "", cause
 	}
 
 	// 2. Wait for the initial commit to be ready (auto_init may be async)
@@ -346,7 +527,34 @@ func executeNewRepoJob(ctx context.Context, job *state.Job, resp agent.AgentResp
 	if reviewResult != nil {
 		message += "\n\n" + formatReviewSummary(reviewResult)
 	}
-	return discordClient.SendResult(ctx, job.ApplicationID, job.InteractionToken, job.ChannelID, message)
+	message += "\n\n---\nPRを確認してmergeしてください。完了したらこのスレッドで `/agent approve` と返信してください。"
+
+	threadID, err := createThreadAndNotify(ctx, job, message, discordClient)
+	if err != nil {
+		slog.Warn("thread creation failed, sending direct message", "error", err)
+		_ = discordClient.SendResult(ctx, job.ApplicationID, job.InteractionToken, job.ChannelID, message)
+	}
+	return threadID, nil
+}
+
+// createThreadAndNotify creates a Discord thread (or posts to existing thread) and returns the thread ID.
+func createThreadAndNotify(ctx context.Context, job *state.Job, message string, discordClient *discord.Client) (string, error) {
+	// If thread already exists (from a previous question), post result there via follow-up
+	if job.ThreadID != "" {
+		if err := discordClient.SendResult(ctx, job.ApplicationID, job.InteractionToken, job.ThreadID, message); err != nil {
+			return job.ThreadID, fmt.Errorf("send to existing thread: %w", err)
+		}
+		return job.ThreadID, nil
+	}
+
+	// Create new thread
+	threadName := fmt.Sprintf("Nemuri: %s", truncateString(job.Prompt, 80))
+	threadID, err := discordClient.CreateThread(ctx, job.ChannelID, threadName, message)
+	if err != nil {
+		return "", fmt.Errorf("create thread: %w", err)
+	}
+	slog.Info("Discord thread created", "job_id", job.JobID, "thread_id", threadID)
+	return threadID, nil
 }
 
 func executeFileJob(ctx context.Context, job *state.Job, resp agent.AgentResponse, discordClient *discord.Client, storageClient *storage.Client) error {
@@ -393,7 +601,12 @@ func executeFileJob(ctx context.Context, job *state.Job, resp agent.AgentRespons
 	}
 
 	message := fmt.Sprintf("ファイルを生成しました（24時間有効）:\n%s", strings.Join(lines, "\n"))
-	return discordClient.SendResult(ctx, job.ApplicationID, job.InteractionToken, job.ChannelID, message)
+
+	channelID := job.ChannelID
+	if job.ThreadID != "" {
+		channelID = job.ThreadID
+	}
+	return discordClient.SendResult(ctx, job.ApplicationID, job.InteractionToken, channelID, message)
 }
 
 // convertAndUploadPDF converts a Markdown file to PDF, uploads it, and returns a Discord line.
@@ -457,11 +670,31 @@ func commitAndCreatePR(ctx context.Context, job *state.Job, resp agent.AgentResp
 	return pr, nil
 }
 
+func deleteSQSMessage(ctx context.Context, sqsClient *sqs.Client, queueURL, receiptHandle, jobID string) {
+	if receiptHandle == "" || queueURL == "" {
+		return
+	}
+	if _, err := sqsClient.DeleteMessage(ctx, &sqs.DeleteMessageInput{
+		QueueUrl:      aws.String(queueURL),
+		ReceiptHandle: aws.String(receiptHandle),
+	}); err != nil {
+		slog.Error("failed to delete SQS message", "error", err, "job_id", jobID)
+	}
+}
+
 func truncateJobID(jobID string) string {
 	if len(jobID) < branchJobIDLen {
 		return jobID
 	}
 	return jobID[:branchJobIDLen]
+}
+
+func truncateString(s string, maxLen int) string {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
+		return s
+	}
+	return string(runes[:maxLen-3]) + "..."
 }
 
 func formatFilePaths(files []agent.OutputFile) string {
