@@ -226,6 +226,13 @@ func handleNewJob(ctx context.Context, interaction discordInteraction, prompt st
 }
 
 func handleResume(ctx context.Context, interaction discordInteraction, existingJob *state.Job, userResponse string) (events.APIGatewayV2HTTPResponse, error) {
+	if strings.TrimSpace(userResponse) == "" {
+		return respondJSON(http.StatusOK, discordResponse{
+			Type: ResponseTypeChannelMessageWithSource,
+			Data: &discordResponseData{Content: "回答が空です。`/agent <回答>` の形式で入力してください。"},
+		})
+	}
+
 	slog.Info("resuming job with user response",
 		"job_id", existingJob.JobID,
 		"thread_id", interaction.ChannelID,
@@ -241,10 +248,10 @@ func handleResume(ctx context.Context, interaction discordInteraction, existingJ
 		})
 	}
 
-	// Update interaction token for follow-up messages
-	// (The original token may have expired, use the new one)
-
-	// Enqueue resume message to SQS
+	// Enqueue resume message to SQS.
+	// Note: ChannelID here is the thread ID (Discord sets channel_id to the thread ID
+	// for interactions within a thread). ECS reads the canonical ChannelID from DynamoDB,
+	// so this value is not used for routing — it's included for logging/diagnostics only.
 	msg := sqsJobMessage{
 		JobID:            existingJob.JobID,
 		Prompt:           existingJob.Prompt,

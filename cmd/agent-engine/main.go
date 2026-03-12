@@ -344,6 +344,7 @@ func executeJob(ctx context.Context, job *state.Job, isResume bool, agentRunner 
 			"revisions", reviewResult.Revisions,
 			"reviews", len(reviewResult.Reviews),
 		)
+		// Save review results as artifact (best-effort)
 		if storageClient != nil {
 			saveReviewArtifact(ctx, job.JobID, reviewResult, storageClient)
 		}
@@ -475,6 +476,7 @@ func executeNewRepoJob(ctx context.Context, job *state.Job, resp agent.AgentResp
 
 	slog.Info("creating new repository", "job_id", job.JobID, "repo", resp.Repo)
 
+	// 1. Create repository (always private, under authenticated user)
 	repoResult, err := githubClient.CreateRepo(ctx, github.CreateRepoInput{
 		Name:        resp.Repo,
 		Description: resp.RepoDescription,
@@ -485,12 +487,14 @@ func executeNewRepoJob(ctx context.Context, job *state.Job, resp agent.AgentResp
 	}
 	slog.Info("repository created", "job_id", job.JobID, "full_name", repoResult.FullName)
 
+	// Extract owner/repo from the API result (e.g. "user/repo-name")
 	parts := strings.SplitN(repoResult.FullName, "/", 2)
 	if len(parts) != 2 {
 		return "", fmt.Errorf("unexpected repo full_name format: %s", repoResult.FullName)
 	}
 	owner, repo := parts[0], parts[1]
 
+	// rollbackRepo deletes the newly created repo on failure.
 	rollbackRepo := func(cause error) (string, error) {
 		slog.Warn("rolling back repository creation", "owner", owner, "repo", repo, "cause", cause)
 		if delErr := githubClient.DeleteRepo(ctx, owner, repo); delErr != nil {
@@ -499,10 +503,12 @@ func executeNewRepoJob(ctx context.Context, job *state.Job, resp agent.AgentResp
 		return "", cause
 	}
 
+	// 2. Wait for the initial commit to be ready (auto_init may be async)
 	if err := githubClient.WaitForRepoReady(ctx, owner, repo, repoResult.DefaultBranch); err != nil {
 		return rollbackRepo(fmt.Errorf("wait for repo ready: %w", err))
 	}
 
+	// 3. Create feature branch, commit files, and create PR
 	branch := fmt.Sprintf("nemuri/%s", truncateJobID(job.JobID))
 	if err := githubClient.CreateBranch(ctx, owner, repo, repoResult.DefaultBranch, branch); err != nil {
 		return rollbackRepo(fmt.Errorf("create branch: %w", err))
@@ -515,6 +521,7 @@ func executeNewRepoJob(ctx context.Context, job *state.Job, resp agent.AgentResp
 		return rollbackRepo(err)
 	}
 
+	// 4. Notify Discord
 	message := fmt.Sprintf("リポジトリを作成しました: %s\nPRを作成しました: %s\n\n**%s**\n%s\n\n変更ファイル: %s",
 		repoResult.HTMLURL, pr.URL, resp.Title, resp.Description, formatFilePaths(resp.Files))
 	if reviewResult != nil {
@@ -572,6 +579,7 @@ func executeFileJob(ctx context.Context, job *state.Job, resp agent.AgentRespons
 			return fmt.Errorf("upload %s: %w", f.Name, err)
 		}
 
+		// Convert Markdown files to PDF; show PDF link instead of md.
 		pdfDone := false
 		if canPDF && converter.IsMarkdown(f.Name) {
 			if pdfLine, ok := convertAndUploadPDF(ctx, job.JobID, f.Name, contentBytes, storageClient); ok {
@@ -580,6 +588,7 @@ func executeFileJob(ctx context.Context, job *state.Job, resp agent.AgentRespons
 			}
 		}
 		if !pdfDone {
+			// Show original file link (also used as fallback when PDF conversion fails).
 			url, err := storageClient.GetOutputPresignedURL(ctx, job.JobID, f.Name)
 			if err != nil {
 				return fmt.Errorf("presign %s: %w", f.Name, err)
@@ -587,6 +596,7 @@ func executeFileJob(ctx context.Context, job *state.Job, resp agent.AgentRespons
 			lines = append(lines, fmt.Sprintf("`%s`: %s", f.Name, url))
 		}
 
+		// Release content to allow GC to reclaim memory.
 		resp.Files[i].Content = ""
 	}
 
@@ -599,6 +609,8 @@ func executeFileJob(ctx context.Context, job *state.Job, resp agent.AgentRespons
 	return discordClient.SendResult(ctx, job.ApplicationID, job.InteractionToken, channelID, message)
 }
 
+// convertAndUploadPDF converts a Markdown file to PDF, uploads it, and returns a Discord line.
+// Returns ("", false) on any failure (logged as warning).
 func convertAndUploadPDF(ctx context.Context, jobID, fileName string, mdContent []byte, storageClient *storage.Client) (string, bool) {
 	pdfName := converter.PDFFilename(fileName)
 	pdfData, err := converter.MarkdownToPDF(ctx, mdContent)
@@ -619,6 +631,7 @@ func convertAndUploadPDF(ctx context.Context, jobID, fileName string, mdContent 
 	return fmt.Sprintf("`%s` (PDF): %s", pdfName, pdfURL), true
 }
 
+// commitAndCreatePR commits files to a branch and creates a PR. Shared by code and new_repo jobs.
 func commitAndCreatePR(ctx context.Context, job *state.Job, resp agent.AgentResponse, owner, baseBranch, branch string, githubClient *github.Client, storageClient *storage.Client) (*github.PRResult, error) {
 	files := make([]github.FileEntry, len(resp.Files))
 	for i, f := range resp.Files {
@@ -634,6 +647,7 @@ func commitAndCreatePR(ctx context.Context, job *state.Job, resp agent.AgentResp
 		return nil, fmt.Errorf("commit files: %w", err)
 	}
 
+	// Save artifacts to S3 (best-effort)
 	if storageClient != nil {
 		artifactData, _ := json.Marshal(resp)
 		if err := storageClient.UploadArtifact(ctx, job.JobID, "code_response.json", artifactData); err != nil {

@@ -292,9 +292,13 @@ func (s *Store) MarkWaitingUserInput(ctx context.Context, jobID, workerID string
 	return nil
 }
 
-// MarkWaitingApproval transitions the job to WAITING_APPROVAL via READY_FOR_PR,
+// MarkWaitingApproval transitions the job from RUNNING to WAITING_APPROVAL,
 // and removes worker_id/heartbeat_at.
 func (s *Store) MarkWaitingApproval(ctx context.Context, jobID, workerID string, currentVersion int, threadID string) error {
+	if err := ValidateTransition(StateRunning, StateWaitingApproval); err != nil {
+		return err
+	}
+
 	now := time.Now().Unix()
 
 	updateExpr := "SET #state = :approval, version = :new_version, updated_at = :now REMOVE worker_id, heartbeat_at"
@@ -386,8 +390,9 @@ func (s *Store) ApproveJob(ctx context.Context, jobID string) error {
 	return nil
 }
 
-// QueryByThreadID looks up a job by Discord thread ID using the GSI.
-// Returns nil if no job is found for the given thread_id.
+// QueryByThreadID looks up an active (non-terminal) job by Discord thread ID using the GSI.
+// Returns the first job in a waiting state (WAITING_USER_INPUT or WAITING_APPROVAL).
+// If no active job is found, returns nil.
 func (s *Store) QueryByThreadID(ctx context.Context, threadID string) (*Job, error) {
 	out, err := s.client.Query(ctx, &dynamodb.QueryInput{
 		TableName:              aws.String(s.tableName),
@@ -396,20 +401,22 @@ func (s *Store) QueryByThreadID(ctx context.Context, threadID string) (*Job, err
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":tid": &types.AttributeValueMemberS{Value: threadID},
 		},
-		Limit: aws.Int32(1),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("query by thread_id %s: %w", threadID, err)
 	}
-	if len(out.Items) == 0 {
-		return nil, nil
-	}
 
-	var job Job
-	if err := attributevalue.UnmarshalMap(out.Items[0], &job); err != nil {
-		return nil, fmt.Errorf("unmarshal job: %w", err)
+	// Return the first job in a waiting state, ignoring terminal states (DONE, FAILED).
+	for _, item := range out.Items {
+		var job Job
+		if err := attributevalue.UnmarshalMap(item, &job); err != nil {
+			return nil, fmt.Errorf("unmarshal job: %w", err)
+		}
+		if job.State == StateWaitingUserInput || job.State == StateWaitingApproval {
+			return &job, nil
+		}
 	}
-	return &job, nil
+	return nil, nil
 }
 
 // MarkFailed transitions the job to FAILED and removes the worker_id.
