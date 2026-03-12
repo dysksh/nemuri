@@ -68,8 +68,9 @@ module "lambda_ingress" {
   lambda_zip_path     = "${path.module}/../../../dist/lambda-ingress.zip"
   sqs_queue_url       = module.sqs.queue_url
   sqs_queue_arn       = module.sqs.queue_arn
-  dynamodb_table_name = module.dynamodb.table_name
-  dynamodb_table_arn  = module.dynamodb.table_arn
+  dynamodb_table_name        = module.dynamodb.table_name
+  dynamodb_table_arn         = module.dynamodb.table_arn
+  dynamodb_gsi_thread_id_arn = module.dynamodb.table_gsi_thread_id_arn
 }
 
 # --- S3 ---

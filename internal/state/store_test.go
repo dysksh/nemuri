@@ -15,6 +15,7 @@ type mockDynamoDB struct {
 	putItemFunc    func(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)
 	getItemFunc    func(ctx context.Context, params *dynamodb.GetItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
 	updateItemFunc func(ctx context.Context, params *dynamodb.UpdateItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error)
+	queryFunc      func(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error)
 }
 
 func (m *mockDynamoDB) PutItem(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
@@ -36,6 +37,13 @@ func (m *mockDynamoDB) UpdateItem(ctx context.Context, params *dynamodb.UpdateIt
 		return m.updateItemFunc(ctx, params, optFns...)
 	}
 	return &dynamodb.UpdateItemOutput{}, nil
+}
+
+func (m *mockDynamoDB) Query(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+	if m.queryFunc != nil {
+		return m.queryFunc(ctx, params, optFns...)
+	}
+	return &dynamodb.QueryOutput{}, nil
 }
 
 func TestCreateJob(t *testing.T) {

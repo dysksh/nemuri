@@ -114,6 +114,27 @@
 
 **Important**: `@mention`-based message monitoring requires Discord Gateway (WebSocket + always-on process), which conflicts with the serverless architecture. Slash commands achieve the same UX without this overhead.
 
+### User Interaction: Thread-based Resume via Slash Commands
+
+**Decision**: User responds to agent questions via `/agent <answer>` in Discord threads (not @mention)
+
+**Rationale**:
+- `@mention` requires Discord Gateway WebSocket (always-on process, conflicts with serverless)
+- Slash commands in threads provide the same UX with existing infrastructure
+- `channel_id` in thread interactions equals the thread ID, enabling job lookup via GSI
+
+**Flow**:
+1. Agent calls `ask_user_question` tool → ECS saves conversation context to S3
+2. Creates Discord thread with question, transitions to `WAITING_USER_INPUT`, exits
+3. User types `/agent <answer>` in the thread
+4. Ingress Lambda queries GSI `thread_id-index` → finds waiting job
+5. Saves `user_response` to DynamoDB, enqueues resume message to SQS
+6. New ECS task acquires lock, loads context from S3, appends user answer as tool_result, resumes agent loop
+
+**Conversation context persistence**: Full LLM message history serialized as JSON in S3 (`artifacts/{job_id}/conversation_context.json`). Includes pending tool_use ID for constructing the tool_result on resume.
+
+**WAITING_APPROVAL**: After PR creation, agent creates thread with approval instructions. User types `/agent approve` → Ingress Lambda transitions `WAITING_APPROVAL → DONE` directly (no ECS task needed).
+
 ### Review: Single Model First
 
 **Decision**: Start with single-model review; add multi-model later

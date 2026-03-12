@@ -8,7 +8,7 @@ See [SPEC.md](SPEC.md) for detailed architecture, [PLAN.md](PLAN.md) for impleme
 
 ## Project Status
 
-Phase 7 (Review Loop) completed. Phases 0–7 are implemented. Next: Phase 8 (User Interaction).
+Phase 8 (User Interaction) implemented. Phases 0–8 are complete. Next: verification testing and future phases.
 
 ## Tech Stack
 

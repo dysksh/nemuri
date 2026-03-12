@@ -137,6 +137,11 @@ func (a *Agent) RunWithReview(ctx context.Context, prompt string, cfg ReviewConf
 		return nil, nil, err
 	}
 
+	// If the agent asked a question, return immediately (no review needed)
+	if runResult.Question != "" {
+		return runResult, nil, nil
+	}
+
 	// Only review code and new_repo responses
 	switch runResult.Response.Type {
 	case ResponseTypeCode, ResponseTypeNewRepo:
