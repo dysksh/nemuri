@@ -738,18 +738,38 @@ func buildPRNotificationMessage(prURL, title, description string, files []agent.
 
 // replaceToolResult finds the placeholder tool_result for the given toolUseID
 // in the last user message and replaces its content with the real answer.
+// Handles both in-memory typed slices ([]llm.ToolResultBlock) and
+// JSON-deserialized generic types ([]any with map[string]any elements).
 func replaceToolResult(messages []llm.Message, toolUseID, content string) {
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role != "user" {
 			continue
 		}
-		results, ok := messages[i].Content.([]llm.ToolResultBlock)
+
+		// Try typed slice first (in-memory path)
+		if results, ok := messages[i].Content.([]llm.ToolResultBlock); ok {
+			for j := range results {
+				if results[j].ToolUseID == toolUseID {
+					results[j].Content = content
+					return
+				}
+			}
+			continue
+		}
+
+		// Fallback: JSON-deserialized path ([]any with map[string]any elements)
+		items, ok := messages[i].Content.([]any)
 		if !ok {
 			continue
 		}
-		for j := range results {
-			if results[j].ToolUseID == toolUseID {
-				results[j].Content = content
+		for _, item := range items {
+			m, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			id, _ := m["tool_use_id"].(string)
+			if id == toolUseID {
+				m["content"] = content
 				return
 			}
 		}
