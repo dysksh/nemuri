@@ -153,7 +153,9 @@ func TestReviewLoop_PassOnFirstReview(t *testing.T) {
 	})
 
 	mock.responses = []*llm.Response{
-		// Run: deliver_result
+		// Gathering: text summary
+		textResponse("Plan: create main.go with main func."),
+		// Generating: deliver_result
 		{
 			ToolCalls:  []llm.ToolCall{{ID: "tc-1", Name: "deliver_result", InputJSON: string(agentInput)}},
 			RawContent: agentRaw,
@@ -184,12 +186,12 @@ func TestReviewLoop_PassOnFirstReview(t *testing.T) {
 	if reviewResult.Revisions != 0 {
 		t.Errorf("expected 0 revisions, got %d", reviewResult.Revisions)
 	}
-	// Token accumulation: run (100+50) + review (200+100) = (300, 150)
-	if runResult.TotalInputTokens != 300 {
-		t.Errorf("expected total input tokens=300, got %d", runResult.TotalInputTokens)
+	// Token accumulation: gathering(100+50) + generating(100+50) + review(200+100) = (400, 200)
+	if runResult.TotalInputTokens != 400 {
+		t.Errorf("expected total input tokens=400, got %d", runResult.TotalInputTokens)
 	}
-	if runResult.TotalOutputTokens != 150 {
-		t.Errorf("expected total output tokens=150, got %d", runResult.TotalOutputTokens)
+	if runResult.TotalOutputTokens != 200 {
+		t.Errorf("expected total output tokens=200, got %d", runResult.TotalOutputTokens)
 	}
 }
 
@@ -433,12 +435,11 @@ func TestRunWithReview_SkipsTextResponse(t *testing.T) {
 	mock := &mockLLMClient{}
 	a := agent.New(mock, nil, "")
 
-	// Text-only response (no tool use)
 	mock.responses = []*llm.Response{
-		{
-			Content: "Here is your answer",
-			Usage:   llm.Usage{InputTokens: 50, OutputTokens: 30},
-		},
+		// Gathering: text summary
+		textResponse("No code needed, just a text answer."),
+		// Generating: deliver_result with type=text
+		deliverResultResponse("text", "Here is your answer"),
 	}
 
 	cfg := agent.DefaultReviewConfig()
@@ -473,7 +474,9 @@ func TestRunWithReview_CodeResponse(t *testing.T) {
 	})
 
 	mock.responses = []*llm.Response{
-		// Run: deliver_result
+		// Gathering: text summary
+		textResponse("Plan: create main.go."),
+		// Generating: deliver_result
 		{
 			ToolCalls:  []llm.ToolCall{{ID: "tc-1", Name: "deliver_result", InputJSON: string(agentInput)}},
 			RawContent: agentRaw,
@@ -517,6 +520,9 @@ func TestRunWithReview_SkipsFileResponse(t *testing.T) {
 	})
 
 	mock.responses = []*llm.Response{
+		// Gathering: text summary
+		textResponse("Plan: write a report file."),
+		// Generating: deliver_result
 		{
 			ToolCalls:  []llm.ToolCall{{ID: "tc-1", Name: "deliver_result", InputJSON: string(agentInput)}},
 			RawContent: agentRaw,

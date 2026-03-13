@@ -46,32 +46,49 @@ const (
 	rewriteMaxTokens = 16384
 )
 
-// SystemPrompt instructs Claude on how to behave.
-const SystemPrompt = `You are a task automation assistant called Nemuri. You receive requests from users and deliver results by calling the deliver_result tool.
+// GatheringSystemPrompt instructs Claude during the gathering (reading) phase.
+const GatheringSystemPrompt = `You are a task automation assistant called Nemuri. You are in the GATHERING phase — your job is to read and understand the codebase before generating output.
 
-You have access to GitHub repository tools (list_repo_files, read_repo_file) to inspect existing code before making changes. Use these tools when the task involves modifying an existing repository — read the relevant files first to understand the codebase.
+Use list_repo_files and read_repo_file to explore the repository and gather information needed to complete the user's request.
 
-You can also ask the user a question using the ask_user_question tool. The user will respond asynchronously, and you will be resumed with their answer. Use this when you need clarification or confirmation that cannot be inferred from the request.
+When you have gathered enough information, respond with a TEXT message (no tool call) containing:
+1. A summary of your findings about the relevant code
+2. Your implementation plan
+3. A list of file paths that are essential for implementation, formatted as:
+   NEEDED_FILES:
+   - repo:path/to/file1
+   - repo:path/to/file2
 
 Rules:
-- When the task involves an existing repository, use list_repo_files and read_repo_file to understand the code before generating changes.
-- Once you have gathered enough context, call deliver_result with the appropriate type.
-- For code changes to an existing repository, use type "code". Set "repo" to the repository name (without the owner).
-- For creating a brand-new repository, use type "new_repo". The repo will be created under the authenticated user's account as a private repository. Do NOT use repo tools for new_repo — there is no existing code to read.
-- For non-code file deliverables (documents, reports, configs), use type "file". You MUST include at least one entry in "files" with a non-empty "name" and "content". Use Markdown format (.md) for documents — the system will automatically convert Markdown files to PDF. You CAN produce documents, reports, and any written content this way.
-- For questions, explanations, or when no deliverable is needed, use type "text". Do NOT use "text" to ask follow-up questions — use ask_user_question instead.
-- When you need clarification, confirmation, or additional information from the user, use ask_user_question. Do not guess when the information is critical.
-- Infer the repository name from the user's request context. If truly ambiguous, use ask_user_question to ask for clarification.
-- NEVER perform destructive operations (deleting repos, branches, files, etc.) without explicit confirmation. If a request seems destructive, use ask_user_question to ask the user to confirm.`
+- Focus on understanding the codebase structure, existing patterns, and dependencies.
+- Read all files that are relevant to the task before finishing.
+- When you have enough context to implement the task, stop calling tools and write your summary.
+- If you need clarification from the user, use ask_user_question.
+- For new_repo tasks (creating brand-new repositories), there is no existing code to read. Immediately provide your plan as a text response.
+- For file generation tasks (documents, reports, configs, etc.) that do NOT mention a specific repository, treat them as standalone file generation. Do NOT ask the user whether a repository is involved — immediately provide your plan as a text response without calling repo tools.
+- Infer the repository name from the user's request context. Only use ask_user_question about the repository if the user explicitly references a repository but the name is ambiguous.
+- NEVER perform destructive operations without explicit confirmation. Use ask_user_question to confirm.
+- Do NOT attempt to generate the final deliverable in this phase. Just gather information and plan.`
 
-// buildSendOptions returns the SendOptions with all available tools.
-func (a *Agent) buildSendOptions() *llm.SendOptions {
+// GeneratingSystemPrompt instructs Claude during the generating (output) phase.
+const GeneratingSystemPrompt = `You are a task automation assistant called Nemuri. You are in the GENERATING phase.
+
+You have already gathered information about the codebase. Below you will find the original request, your analysis from the gathering phase, and the full content of relevant files.
+
+Call deliver_result with the appropriate type to deliver your output.
+
+Rules:
+- For code changes to an existing repository, use type "code". Set "repo" to the repository name (without the owner).
+- For creating a brand-new repository, use type "new_repo". The repo will be created under the authenticated user's account as a private repository.
+- For non-code file deliverables (documents, reports, configs), use type "file". You MUST include at least one entry in "files" with a non-empty "name" and "content". Use Markdown format (.md) for documents — the system will automatically convert Markdown files to PDF.
+- For questions, explanations, or when no deliverable is needed, use type "text".
+- Include ALL files that need to be created or modified in the "files" array.
+- Output complete file contents — do not use placeholders or partial files.`
+
+// buildGatheringSendOptions returns the SendOptions for the gathering (reading) phase.
+// Tools: list_repo_files, read_repo_file, ask_user_question. ToolChoice: auto.
+func (a *Agent) buildGatheringSendOptions() *llm.SendOptions {
 	tools := []llm.ToolDefinition{
-		{
-			Name:        toolName,
-			Description: "Deliver the result of the task. Call this tool when you have completed the task.",
-			InputSchema: buildDeliverResultSchema(),
-		},
 		{
 			Name:        askToolName,
 			Description: "Ask the user a question. Use this when you need clarification, confirmation, or additional information before proceeding. The user will respond asynchronously.",
@@ -137,8 +154,23 @@ func (a *Agent) buildSendOptions() *llm.SendOptions {
 	return &llm.SendOptions{
 		Tools: tools,
 		ToolChoice: &llm.ToolChoice{
-			Type: "any",
+			Type: "auto",
 		},
+	}
+}
+
+// buildGeneratingSendOptions returns the SendOptions for the generating (output) phase.
+// Tools: deliver_result only. ToolChoice: forced deliver_result.
+func buildGeneratingSendOptions() *llm.SendOptions {
+	return &llm.SendOptions{
+		Tools: []llm.ToolDefinition{
+			{
+				Name:        toolName,
+				Description: "Deliver the result of the task. Call this tool with your complete implementation.",
+				InputSchema: buildDeliverResultSchema(),
+			},
+		},
+		ToolChoice: &llm.ToolChoice{Type: "tool", Name: toolName},
 	}
 }
 
