@@ -41,8 +41,10 @@ const (
 
 // conversationContext is the saved state for resuming after a question.
 type conversationContext struct {
-	Messages          []llm.Message `json:"messages"`
-	PendingToolCallID string        `json:"pending_tool_call_id"`
+	Messages          []llm.Message     `json:"messages"`
+	PendingToolCallID string            `json:"pending_tool_call_id"`
+	Phase             string            `json:"phase,omitempty"`
+	FileCache         map[string]string `json:"file_cache,omitempty"`
 }
 
 // jobOutcome describes how a job execution ended.
@@ -51,6 +53,8 @@ type jobOutcome struct {
 	question      string
 	messages      []llm.Message
 	pendingToolID string
+	phase         string            // agent phase when paused ("gathering")
+	fileCache     map[string]string // cached file contents for resume
 
 	// For PR flow
 	prCreated bool
@@ -240,6 +244,8 @@ func handleQuestionOutcome(ctx context.Context, job *state.Job, workerID string,
 	convCtx := conversationContext{
 		Messages:          outcome.messages,
 		PendingToolCallID: outcome.pendingToolID,
+		Phase:             outcome.phase,
+		FileCache:         outcome.fileCache,
 	}
 	data, err := json.Marshal(convCtx)
 	if err != nil {
@@ -295,6 +301,8 @@ func executeJob(ctx context.Context, job *state.Job, isResume bool, agentRunner 
 				question:      resumeResult.Question,
 				messages:      resumeResult.Messages,
 				pendingToolID: resumeResult.PendingToolCallID,
+				phase:         resumeResult.Phase,
+				fileCache:     resumeResult.FileCache,
 			}, nil
 		}
 
@@ -324,6 +332,8 @@ func executeJob(ctx context.Context, job *state.Job, isResume bool, agentRunner 
 				question:      runResult.Question,
 				messages:      runResult.Messages,
 				pendingToolID: runResult.PendingToolCallID,
+				phase:         runResult.Phase,
+				fileCache:     runResult.FileCache,
 			}, nil
 		}
 	}
@@ -389,13 +399,9 @@ func resumeAgent(ctx context.Context, job *state.Job, agentRunner *agent.Agent, 
 		return nil, fmt.Errorf("unmarshal conversation context: %w", err)
 	}
 
-	// Append the user's answer as a tool_result for the pending ask_user_question call
-	toolResult := llm.ToolResultBlock{
-		Type:      "tool_result",
-		ToolUseID: convCtx.PendingToolCallID,
-		Content:   fmt.Sprintf("User responded: %s", job.UserResponse),
-	}
-	convCtx.Messages = append(convCtx.Messages, llm.NewToolResultsMessage([]llm.ToolResultBlock{toolResult}))
+	// Replace the placeholder tool_result for ask_user_question with the real answer.
+	// The placeholder was included in the last user message alongside repo tool results.
+	replaceToolResult(convCtx.Messages, convCtx.PendingToolCallID, fmt.Sprintf("User responded: %s", job.UserResponse))
 
 	slog.Info("resuming agent with conversation context",
 		"job_id", job.JobID,
@@ -403,7 +409,7 @@ func resumeAgent(ctx context.Context, job *state.Job, agentRunner *agent.Agent, 
 		"pending_tool_id", convCtx.PendingToolCallID,
 	)
 
-	return agentRunner.Resume(ctx, convCtx.Messages)
+	return agentRunner.Resume(ctx, convCtx.Messages, convCtx.Phase, convCtx.FileCache)
 }
 
 func executeTextJob(ctx context.Context, job *state.Job, content string, discordClient *discord.Client) error {
@@ -450,18 +456,11 @@ func executeCodeJob(ctx context.Context, job *state.Job, resp agent.AgentRespons
 	}
 
 	// 3. Create thread and notify
-	message := fmt.Sprintf("PRを作成しました: %s\n\n**%s**\n%s\n\n変更ファイル: %s",
-		pr.URL, resp.Title, resp.Description, formatFilePaths(resp.Files))
-	if reviewResult != nil {
-		message += "\n\n" + formatReviewSummary(reviewResult)
-	}
-	message += "\n\n---\nPRを確認してmergeしてください。完了したらこのスレッドで `/agent approve` と返信してください。"
+	message := buildPRNotificationMessage(pr.URL, resp.Title, resp.Description, resp.Files, reviewResult)
 
 	threadID, err := createThreadAndNotify(ctx, job, message, discordClient)
 	if err != nil {
-		// Fall back to direct message if thread creation fails
-		slog.Warn("thread creation failed, sending direct message", "error", err)
-		_ = discordClient.SendResult(ctx, job.ApplicationID, job.InteractionToken, job.ChannelID, message)
+		return "", fmt.Errorf("notify Discord: %w", err)
 	}
 	return threadID, nil
 }
@@ -522,23 +521,21 @@ func executeNewRepoJob(ctx context.Context, job *state.Job, resp agent.AgentResp
 	}
 
 	// 4. Notify Discord
-	message := fmt.Sprintf("リポジトリを作成しました: %s\nPRを作成しました: %s\n\n**%s**\n%s\n\n変更ファイル: %s",
-		repoResult.HTMLURL, pr.URL, resp.Title, resp.Description, formatFilePaths(resp.Files))
-	if reviewResult != nil {
-		message += "\n\n" + formatReviewSummary(reviewResult)
-	}
-	message += "\n\n---\nPRを確認してmergeしてください。完了したらこのスレッドで `/agent approve` と返信してください。"
+	message := "リポジトリを作成しました: " + repoResult.HTMLURL + "\n" +
+		buildPRNotificationMessage(pr.URL, resp.Title, resp.Description, resp.Files, reviewResult)
 
 	threadID, err := createThreadAndNotify(ctx, job, message, discordClient)
 	if err != nil {
-		slog.Warn("thread creation failed, sending direct message", "error", err)
-		_ = discordClient.SendResult(ctx, job.ApplicationID, job.InteractionToken, job.ChannelID, message)
+		return "", fmt.Errorf("notify Discord: %w", err)
 	}
 	return threadID, nil
 }
 
 // createThreadAndNotify creates a Discord thread (or posts to existing thread) and returns the thread ID.
+// Messages are truncated to Discord's 2000-character limit to prevent API errors.
 func createThreadAndNotify(ctx context.Context, job *state.Job, message string, discordClient *discord.Client) (string, error) {
+	message = truncateDiscordMessage(message)
+
 	// If thread already exists (from a previous question), post result there via follow-up
 	if job.ThreadID != "" {
 		if err := discordClient.SendResult(ctx, job.ApplicationID, job.InteractionToken, job.ThreadID, message); err != nil {
@@ -551,9 +548,24 @@ func createThreadAndNotify(ctx context.Context, job *state.Job, message string, 
 	threadName := fmt.Sprintf("Nemuri: %s", truncateString(job.Prompt, 80))
 	threadID, err := discordClient.CreateThread(ctx, job.ChannelID, threadName, message)
 	if err != nil {
-		return "", fmt.Errorf("create thread: %w", err)
+		// Fall back to direct message in the channel
+		slog.Warn("thread creation failed, falling back to direct message", "error", err, "job_id", job.JobID)
+		if sendErr := discordClient.SendResult(ctx, job.ApplicationID, job.InteractionToken, job.ChannelID, message); sendErr != nil {
+			return "", fmt.Errorf("thread creation and fallback both failed: thread: %w, fallback: %v", err, sendErr)
+		}
+		// Return channelID so callers (e.g. MarkWaitingApproval) have a valid ID
+		// for follow-up interactions even when thread creation failed.
+		return job.ChannelID, nil
 	}
 	slog.Info("Discord thread created", "job_id", job.JobID, "thread_id", threadID)
+
+	// Follow up the original deferred ACK to resolve "thinking..." message
+	followUpErr := discordClient.SendFollowUp(ctx, job.ApplicationID, job.InteractionToken,
+		"スレッドで結果を投稿しました。確認してください。")
+	if followUpErr != nil {
+		slog.Warn("failed to follow up original interaction", "error", followUpErr, "job_id", job.JobID)
+	}
+
 	return threadID, nil
 }
 
@@ -695,6 +707,54 @@ func truncateString(s string, maxLen int) string {
 		return s
 	}
 	return string(runes[:maxLen-3]) + "..."
+}
+
+const discordMessageLimit = 2000
+
+// truncateDiscordMessage ensures a message fits within Discord's 2000-character limit.
+// If truncation is needed, the message is cut and an ellipsis appended.
+func truncateDiscordMessage(message string) string {
+	runes := []rune(message)
+	if len(runes) <= discordMessageLimit {
+		return message
+	}
+	return string(runes[:discordMessageLimit-3]) + "..."
+}
+
+// buildPRNotificationMessage constructs a Discord message for PR creation.
+// Truncation is handled by createThreadAndNotify, so this builds the full message.
+func buildPRNotificationMessage(prURL, title, description string, files []agent.OutputFile, reviewResult *agent.ReviewLoopResult) string {
+	message := fmt.Sprintf("PRを作成しました: %s\n\n**%s**", prURL, title)
+	if description != "" {
+		message += "\n" + description
+	}
+	message += "\n\n変更ファイル: " + formatFilePaths(files)
+	if reviewResult != nil {
+		message += "\n\n" + formatReviewSummary(reviewResult)
+	}
+	message += "\n\n---\nPRを確認してmergeしてください。完了したらこのスレッドで `/agent approve` と返信してください。"
+	return message
+}
+
+// replaceToolResult finds the placeholder tool_result for the given toolUseID
+// in the last user message and replaces its content with the real answer.
+func replaceToolResult(messages []llm.Message, toolUseID, content string) {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role != "user" {
+			continue
+		}
+		results, ok := messages[i].Content.([]llm.ToolResultBlock)
+		if !ok {
+			continue
+		}
+		for j := range results {
+			if results[j].ToolUseID == toolUseID {
+				results[j].Content = content
+				return
+			}
+		}
+	}
+	slog.Warn("replaceToolResult: placeholder not found for tool_use_id", "tool_use_id", toolUseID)
 }
 
 func formatFilePaths(files []agent.OutputFile) string {

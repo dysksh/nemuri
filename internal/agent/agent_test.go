@@ -62,28 +62,51 @@ func textResponse(text string) *llm.Response {
 	}
 }
 
-func repoToolResponse(toolName, toolID string) *llm.Response {
-	input, _ := json.Marshal(map[string]string{"repo": "test-repo"})
+func repoToolResponse(toolName, toolID string, input map[string]string) *llm.Response {
+	inputJSON, _ := json.Marshal(input)
 	rawContent, _ := json.Marshal([]map[string]any{
 		{
 			"type":  "tool_use",
 			"id":    toolID,
 			"name":  toolName,
-			"input": json.RawMessage(input),
+			"input": json.RawMessage(inputJSON),
 		},
 	})
 	return &llm.Response{
 		ToolCalls: []llm.ToolCall{
-			{ID: toolID, Name: toolName, InputJSON: string(input)},
+			{ID: toolID, Name: toolName, InputJSON: string(inputJSON)},
 		},
 		RawContent: rawContent,
 		Usage:      llm.Usage{InputTokens: 100, OutputTokens: 50},
 	}
 }
 
+func askQuestionResponse(question, toolID string) *llm.Response {
+	input, _ := json.Marshal(map[string]string{"question": question})
+	rawContent, _ := json.Marshal([]map[string]any{
+		{
+			"type":  "tool_use",
+			"id":    toolID,
+			"name":  "ask_user_question",
+			"input": json.RawMessage(input),
+		},
+	})
+	return &llm.Response{
+		ToolCalls: []llm.ToolCall{
+			{ID: toolID, Name: "ask_user_question", InputJSON: string(input)},
+		},
+		RawContent: rawContent,
+		Usage:      llm.Usage{InputTokens: 100, OutputTokens: 50},
+	}
+}
+
+// TestAgent_Run_DeliverResult tests the two-phase flow: gathering text → generating deliver_result.
 func TestAgent_Run_DeliverResult(t *testing.T) {
 	mock := &mockLLMClient{
 		responses: []*llm.Response{
+			// Phase 1 (gathering): text-only response ends gathering
+			textResponse("Summary: no files needed."),
+			// Phase 2 (generating): deliver_result
 			deliverResultResponse("text", "Hello, world!"),
 		},
 	}
@@ -99,37 +122,74 @@ func TestAgent_Run_DeliverResult(t *testing.T) {
 	if result.Response.Content != "Hello, world!" {
 		t.Errorf("response content = %q, want %q", result.Response.Content, "Hello, world!")
 	}
-	if result.Iterations != 1 {
-		t.Errorf("iterations = %d, want 1", result.Iterations)
+	if mock.calls != 2 {
+		t.Errorf("LLM calls = %d, want 2", mock.calls)
 	}
-	if result.TotalInputTokens != 100 {
-		t.Errorf("input tokens = %d, want 100", result.TotalInputTokens)
+	// Token accumulation: gathering (100+50) + generating (100+50)
+	if result.TotalInputTokens != 200 {
+		t.Errorf("input tokens = %d, want 200", result.TotalInputTokens)
 	}
-	if result.TotalOutputTokens != 50 {
-		t.Errorf("output tokens = %d, want 50", result.TotalOutputTokens)
+	if result.TotalOutputTokens != 100 {
+		t.Errorf("output tokens = %d, want 100", result.TotalOutputTokens)
 	}
 }
 
-func TestAgent_Run_TextOnlyResponse(t *testing.T) {
+// TestAgent_Run_NoGithub_SkipsGathering tests that with no GitHub client,
+// gathering ends immediately with text, then generating produces output.
+func TestAgent_Run_NoGithub_SkipsGathering(t *testing.T) {
 	mock := &mockLLMClient{
 		responses: []*llm.Response{
-			textResponse("plain text answer"),
+			textResponse("No repo tools, plan: create new_repo."),
+			deliverResultResponse("new_repo", ""),
 		},
 	}
 
 	a := agent.New(mock, nil, "")
-	result, err := a.Run(context.Background(), "question")
+	result, err := a.Run(context.Background(), "create a new repo")
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if result.Response.Type != "text" {
-		t.Errorf("response type = %q, want %q", result.Response.Type, "text")
+	if result.Response.Type != "new_repo" {
+		t.Errorf("response type = %q, want %q", result.Response.Type, "new_repo")
 	}
-	if result.Response.Content != "plain text answer" {
-		t.Errorf("response content = %q, want %q", result.Response.Content, "plain text answer")
+	if mock.calls != 2 {
+		t.Errorf("LLM calls = %d, want 2 (gathering text + generating)", mock.calls)
 	}
 }
 
+// TestAgent_Run_GatheringReadsFiles tests that file reads during gathering
+// are cached and the agent progresses through both phases.
+func TestAgent_Run_GatheringReadsFiles(t *testing.T) {
+	mock := &mockLLMClient{
+		responses: []*llm.Response{
+			// Gathering: read a file (will fail since no real github, but tests the flow)
+			repoToolResponse("read_repo_file", "tool-1", map[string]string{"repo": "test", "path": "main.go"}),
+			// Gathering: text summary ends phase
+			textResponse("Read main.go. Plan: add endpoint.\nNEEDED_FILES:\n- test:main.go"),
+			// Generating: deliver_result
+			deliverResultResponse("code", ""),
+		},
+	}
+
+	// github=nil, so tool execution will fail, but the loop should continue
+	a := agent.New(mock, nil, "")
+	result, err := a.Run(context.Background(), "add endpoint")
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Response.Type != "code" {
+		t.Errorf("response type = %q, want %q", result.Response.Type, "code")
+	}
+	if mock.calls != 3 {
+		t.Errorf("LLM calls = %d, want 3", mock.calls)
+	}
+	// Iterations: 2 gathering + 1 generating = 3
+	if result.Iterations != 3 {
+		t.Errorf("iterations = %d, want 3", result.Iterations)
+	}
+}
+
+// TestAgent_Run_LLMError tests error propagation from the LLM.
 func TestAgent_Run_LLMError(t *testing.T) {
 	mock := &mockLLMClient{
 		errors: []error{fmt.Errorf("API rate limit exceeded")},
@@ -142,9 +202,10 @@ func TestAgent_Run_LLMError(t *testing.T) {
 	}
 }
 
+// TestAgent_Run_ContextCancellation tests that a cancelled context is handled.
 func TestAgent_Run_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // cancel immediately
+	cancel()
 
 	mock := &mockLLMClient{}
 	a := agent.New(mock, nil, "")
@@ -154,29 +215,36 @@ func TestAgent_Run_ContextCancellation(t *testing.T) {
 	}
 }
 
-func TestAgent_Run_MaxIterationsExceeded(t *testing.T) {
-	// Return a non-deliver_result tool call every time, but github is nil so executeTool will error.
-	// The agent should still loop and eventually hit the max iterations limit.
-	// However, with github=nil, executeTool returns an error which is sent back as tool_result.
-	// The loop continues until maxToolIterations (20).
-	responses := make([]*llm.Response, 21)
-	for i := range responses {
-		responses[i] = repoToolResponse("list_repo_files", fmt.Sprintf("tool-%d", i))
+// TestAgent_Run_MaxGatheringIterations tests that the gathering phase
+// forces a summary when max iterations are reached.
+func TestAgent_Run_MaxGatheringIterations(t *testing.T) {
+	// 15 repo tool calls + 1 forced summary + 1 generating = 17 total
+	responses := make([]*llm.Response, 17)
+	for i := range 15 {
+		responses[i] = repoToolResponse("list_repo_files", fmt.Sprintf("tool-%d", i), map[string]string{"repo": "test"})
 	}
+	responses[15] = textResponse("Forced summary after max iterations.")
+	responses[16] = deliverResultResponse("text", "done")
 
 	mock := &mockLLMClient{responses: responses}
 	a := agent.New(mock, nil, "")
-	_, err := a.Run(context.Background(), "keep looping")
-	if err == nil {
-		t.Fatal("Run() expected error for max iterations")
+	result, err := a.Run(context.Background(), "keep looping")
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Response.Content != "done" {
+		t.Errorf("response content = %q, want %q", result.Response.Content, "done")
 	}
 }
 
+// TestAgent_Run_TokenUsageAccumulated tests that token usage from both phases is accumulated.
 func TestAgent_Run_TokenUsageAccumulated(t *testing.T) {
-	// Two iterations: first a repo tool call (error because no github), then deliver_result
 	mock := &mockLLMClient{
 		responses: []*llm.Response{
-			repoToolResponse("list_repo_files", "tool-1"),
+			// Gathering: 1 repo tool + 1 text summary = 2 calls
+			repoToolResponse("list_repo_files", "tool-1", map[string]string{"repo": "test"}),
+			textResponse("Summary ready."),
+			// Generating: 1 deliver_result
 			deliverResultResponse("text", "done"),
 		},
 	}
@@ -186,13 +254,76 @@ func TestAgent_Run_TokenUsageAccumulated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if result.TotalInputTokens != 200 {
-		t.Errorf("total input tokens = %d, want 200", result.TotalInputTokens)
+	// 3 calls × 100 input tokens = 300
+	if result.TotalInputTokens != 300 {
+		t.Errorf("total input tokens = %d, want 300", result.TotalInputTokens)
 	}
-	if result.TotalOutputTokens != 100 {
-		t.Errorf("total output tokens = %d, want 100", result.TotalOutputTokens)
+	// 3 calls × 50 output tokens = 150
+	if result.TotalOutputTokens != 150 {
+		t.Errorf("total output tokens = %d, want 150", result.TotalOutputTokens)
 	}
-	if result.Iterations != 2 {
-		t.Errorf("iterations = %d, want 2", result.Iterations)
+	// 2 gathering iterations + 1 generating iteration = 3
+	if result.Iterations != 3 {
+		t.Errorf("iterations = %d, want 3", result.Iterations)
+	}
+}
+
+// TestAgent_GatheringPhase_AskQuestion tests that ask_user_question during
+// gathering returns Phase="gathering" and FileCache.
+func TestAgent_GatheringPhase_AskQuestion(t *testing.T) {
+	mock := &mockLLMClient{
+		responses: []*llm.Response{
+			askQuestionResponse("Which branch?", "ask-1"),
+		},
+	}
+
+	a := agent.New(mock, nil, "")
+	result, err := a.Run(context.Background(), "deploy something")
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Question != "Which branch?" {
+		t.Errorf("question = %q, want %q", result.Question, "Which branch?")
+	}
+	if result.Phase != "gathering" {
+		t.Errorf("phase = %q, want %q", result.Phase, "gathering")
+	}
+	if result.PendingToolCallID != "ask-1" {
+		t.Errorf("pending tool call ID = %q, want %q", result.PendingToolCallID, "ask-1")
+	}
+	if result.FileCache == nil {
+		t.Error("FileCache should not be nil")
+	}
+}
+
+// TestAgent_Resume_FromGathering tests resuming from a gathering-phase question.
+func TestAgent_Resume_FromGathering(t *testing.T) {
+	mock := &mockLLMClient{
+		responses: []*llm.Response{
+			// After resume: gathering text summary
+			textResponse("User said main branch. Plan: add feature."),
+			// Generating: deliver_result
+			deliverResultResponse("code", ""),
+		},
+	}
+
+	// Simulate saved state: messages with original prompt + ask tool call + user answer
+	messages := []llm.Message{
+		{Role: "user", Content: "add feature to repo"},
+	}
+	fileCache := map[string]string{
+		"repo:main.go": "package main\n",
+	}
+
+	a := agent.New(mock, nil, "")
+	result, err := a.Resume(context.Background(), messages, "gathering", fileCache)
+	if err != nil {
+		t.Fatalf("Resume() error = %v", err)
+	}
+	if result.Response.Type != "code" {
+		t.Errorf("response type = %q, want %q", result.Response.Type, "code")
+	}
+	if mock.calls != 2 {
+		t.Errorf("LLM calls = %d, want 2", mock.calls)
 	}
 }
