@@ -197,13 +197,50 @@
 
 Do not mix these concerns.
 
+## Network Isolation: ECS Outbound Restriction
+
+**Decision**: ECS tasks run in a public subnet with a security group that restricts outbound traffic to HTTPS (port 443) only
+
+**Rationale**:
+- Domain-level filtering (Squid proxy) adds ~$34/mo always-on cost and operational complexity (EC2 management, VPC Interface Endpoints)
+- For a personal-use agent, the cost and complexity of domain-level filtering outweigh the security benefit
+- Port 443 restriction blocks non-HTTPS exfiltration channels (DNS tunneling excluded, but low risk for this threat model)
+- The agent's tool executor controls which external APIs are called — the LLM cannot make arbitrary HTTP calls directly
+
+**Architecture**:
+
+```
+ECS Task (public subnet, SG: outbound 443 only)
+  → IGW → External APIs (Claude, GitHub, Discord, AWS)
+```
+
+- ECS tasks run in a public subnet with a public IP (Fargate `assignPublicIp = ENABLED`)
+- Security group outbound rules allow only TCP port 443 (HTTPS)
+- No VPC Interface Endpoints needed (direct internet access via IGW)
+- No Squid proxy, no NAT Gateway
+- AWS services (S3, DynamoDB, SQS, Secrets Manager, ECR, CloudWatch Logs) all accessible over HTTPS (port 443)
+
+**Trade-offs accepted**:
+- HTTPS to arbitrary domains is possible (the LLM could theoretically be prompt-injected to call an attacker-controlled HTTPS endpoint via tool use)
+- Mitigation: tool executor has a fixed set of allowed external services — no generic HTTP client tool is exposed to the LLM
+- If stricter isolation becomes necessary (e.g., team use), revisit domain-level filtering — options include an `http.RoundTripper` allowlist wrapper in Go (zero infra cost) or Squid / Network Firewall at the infrastructure level
+
+**Alternatives considered**:
+
+| Approach | Monthly cost | Domain filtering | Decision |
+|---|---|---|---|
+| **Port 443 restriction only** | **$0** | **No** | **Adopted: sufficient for personal use** |
+| + Squid (no NAT) + IF Endpoints | $34 ($3 Squid + $31 IF Endpoints) | Yes | Rejected: cost/complexity disproportionate to threat model |
+| + Network Firewall | $577 (2 AZ) | Yes | Rejected: excessive cost |
+| + NAT Gateway + Squid | $79 ($45 NAT + $3 Squid + $31 IF Endpoints) | Yes | Rejected: NAT Gateway cost |
+
 ## Cost Estimates (Personal Use)
 
 | Component | Estimated Monthly Cost |
 |---|---|
 | AWS (Lambda, SQS, DynamoDB, S3, ECS) | 1,000–3,000 JPY |
 | LLM API calls | 5,000–15,000 JPY |
-| **Total** | **~10,000–20,000 JPY** |
+| **Total** | **~6,000–18,000 JPY** |
 
 Optimization levers:
 - Use lightweight models for style review (future)
