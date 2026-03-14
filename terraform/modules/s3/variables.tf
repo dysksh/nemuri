@@ -19,3 +19,8 @@ variable "outputs_expiration_days" {
   type        = number
   default     = 180
 }
+
+variable "account_id" {
+  description = "AWS account ID (used for globally unique bucket names)"
+  type        = string
+}

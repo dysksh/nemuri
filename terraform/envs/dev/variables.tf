@@ -25,3 +25,8 @@ variable "default_github_owner" {
   description = "Default GitHub owner (org or user) for code deliverables"
   type        = string
 }
+
+variable "account_id" {
+  description = "AWS account ID (used for globally unique S3 bucket names)"
+  type        = string
+}
