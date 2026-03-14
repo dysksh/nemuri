@@ -108,7 +108,16 @@ RUN NVIM_ARCH=$([ "${TARGETARCH}" = "amd64" ] && echo "x86_64" || echo "arm64") 
 # ============================================================
 FROM base AS claude
 
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/* \
-    && npm install -g @anthropic-ai/claude-code
+# Claude Code native installer
+# Note: Trusts Anthropic's HTTPS endpoint (claude.ai). The installer
+# itself verifies the downloaded binary via SHA-256 checksum.
+# -f flag ensures curl fails on HTTP errors rather than saving error pages.
+RUN curl -fsSL -o /tmp/claude-install.sh https://claude.ai/install.sh \
+    && bash /tmp/claude-install.sh \
+    && rm -f /tmp/claude-install.sh \
+    && cp /root/.local/bin/claude /usr/local/bin/claude
+
+RUN mkdir -p /home/dev/.local/bin \
+    && cp /root/.local/bin/claude /home/dev/.local/bin/claude \
+    && chown -R dev:dev /home/dev/.local
+ENV PATH="/root/.local/bin:/home/dev/.local/bin:${PATH}"
