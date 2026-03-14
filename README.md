@@ -128,6 +128,7 @@ export GITHUB_PAT=
 environment          = "dev"
 project              = "nemuri"
 aws_region           = "ap-northeast-1"
+account_id           = "..."   # AWS のアカウントID
 discord_public_key   = "..."   # Discord Developer Portal > General Information > PUBLIC KEY
 default_github_owner = "..."   # GitHub のユーザー名 or Organization 名
 ```
