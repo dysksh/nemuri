@@ -1,4 +1,4 @@
-.PHONY: setup setup-hooks up down dev check build-lambda build-and-push-ecr terraform-apply put-secret deploy test lint
+.PHONY: setup setup-hooks up down dev check build-lambda build-and-push-ecr terraform-apply put-secret deploy bootstrap register-commands register-endpoint test lint
 
 setup: 
 	make setup-hooks
@@ -55,9 +55,20 @@ put-secret:
 
 deploy:
 	make build-lambda
-	make build-and-push-ecr
 	make terraform-apply
+	make build-and-push-ecr
 	make put-secret
+	. ./.env && make register-commands
+	. ./.env && make register-endpoint
+
+bootstrap:
+	./scripts/bootstrap_tfstate.sh
+
+register-commands:
+	./scripts/register_commands.sh
+
+register-endpoint:
+	./scripts/register_endpoint.sh
 
 test:
 	go test --count=1 -cover ./internal/... && \
