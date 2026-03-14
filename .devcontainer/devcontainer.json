@@ -2,7 +2,8 @@
   "name": "nemuri-dev",
   "build": {
     "dockerfile": "Dockerfile",
-    "context": "."
+    "context": ".",
+    "target": "dev"
   },
   "remoteUser": "dev",
   "mounts": [

@@ -3,6 +3,7 @@ services:
     build:
       context: .devcontainer
       dockerfile: Dockerfile
+      target: dev
     user: ${USER_UID:-1000}:${USER_GID:-1000}
     volumes:
       - .:/workspace
@@ -10,7 +11,6 @@ services:
       - ${HOME}/.gitconfig:${DEV_HOME:-/home/dev}/.gitconfig:ro
       - ${HOME}/.ssh:${DEV_HOME:-/home/dev}/.ssh:ro
       - ${HOME}/.aws:${DEV_HOME:-/home/dev}/.aws:ro
-      - ${HOME}/.claude:${DEV_HOME:-/home/dev}/.claude
       - ${HOME}/.config/infracost:${DEV_HOME:-/home/dev}/.config/infracost:ro
       - ${HOME}/.config/nvim:${DEV_HOME:-/home/dev}/.config/nvim
       - nvim-data:${DEV_HOME:-/home/dev}/.local/share/nvim
@@ -22,5 +22,25 @@ services:
       - GOPATH=${DEV_HOME:-/home/dev}/go
     entrypoint: ["/workspace/scripts/entrypoint.sh"]
 
+  claude:
+    build:
+      context: .devcontainer
+      dockerfile: Dockerfile
+      target: claude
+    user: ${USER_UID:-1000}:${USER_GID:-1000}
+    volumes:
+      - .:/workspace
+      - ${HOME}/.claude:${DEV_HOME:-/home/dev}/.claude
+      - ${HOME}/.claude.json:${DEV_HOME:-/home/dev}/.claude.json
+      - claude-gomodcache:${DEV_HOME:-/home/dev}/go/pkg/mod
+    working_dir: /workspace
+    environment:
+      - HOME=${DEV_HOME:-/home/dev}
+      - GOPATH=${DEV_HOME:-/home/dev}/go
+    entrypoint: ["sleep", "infinity"]
+    stdin_open: true
+    tty: true
+
 volumes:
   nvim-data:
+  claude-gomodcache:

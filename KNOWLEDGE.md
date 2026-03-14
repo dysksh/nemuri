@@ -271,6 +271,35 @@ Optimization levers:
 - Dockerfile uses a separate download stage so the .deb is cached in Docker layer cache
 - If GitHub releases go down, host the .deb in S3 or a private registry and update the URL
 
+## Development Container Isolation: dev / claude Separation
+
+**Decision**: Separate the development container (dev) and the Claude Code container (claude)
+
+**Rationale**:
+- The dev container volume-mounts host dotfiles (`.aws/`, `.ssh/`, `.gitconfig`, etc.)
+- Claude Code sends file contents to the LLM as context, creating a risk of credentials being read unintentionally
+- Container-level isolation provides a stronger security boundary than software-level access control (e.g., `.claude/settings.json` deny rules)
+- If a vulnerability is discovered in Claude Code itself, the blast radius is limited to the workspace
+
+**Container layout**:
+
+| Container | Purpose | Mounts | Claude Code |
+|---|---|---|---|
+| dev | Development (editor, git, AWS CLI, etc.) | workspace + dotfiles (`.aws`, `.ssh`, `.gitconfig`, nvim config, etc.) | No |
+| claude | Claude Code execution only | workspace + `.claude` (auth only) | Yes |
+
+**Dockerfile multi-stage structure**:
+- `base`: Shared toolchain (Go, Terraform, linters, AWS CLI, Docker CLI, etc.)
+- `dev`: base + Neovim
+- `claude`: base + Node.js + Claude Code
+
+Go module cache is intentionally separated into a dedicated volume (`claude-gomodcache`). This prevents operations in the claude container from affecting the dev container's cache.
+
+**Claude container design principles**:
+- No git commands (PR creation etc. is done in the dev container)
+- Go toolchain (`go build` / `go test`) is available
+- Entrypoint is `sleep infinity` (no initialization script needed, unlike dev)
+
 ## Glossary
 
 | Term | Meaning |

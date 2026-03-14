@@ -109,6 +109,24 @@ make dev       # コンテナ内にシェル接続
 
 VS Code の場合は「Reopen in Container」でも起動可能。
 
+#### dev コンテナと claude コンテナ
+
+`make up` で2つのコンテナが起動する:
+
+| コンテナ | 用途 | コマンド |
+|---|---|---|
+| **dev** | 開発作業（エディタ, git, AWS CLI, Terraform等） | `make dev` |
+| **claude** | Claude Code 実行専用 | `make claude` |
+
+セキュリティ上の理由から、コンテナを分離している。dev コンテナにはホストの dotfiles（`.aws/`, `.ssh/`, `.gitconfig` 等）がマウントされるが、claude コンテナにはマウントされない。Claude Code はワークスペースのみにアクセスできる。
+
+```bash
+make dev       # dev コンテナに入る（開発作業用）
+make claude    # claude コンテナで Claude Code を起動
+```
+
+両コンテナとも Go ツールチェーンを共有しているため、claude コンテナ内でも `go build` / `go test` は実行可能。
+
 ### 3. 環境変数・Terraform 変数の設定（初回のみ）
 
 `.env` を作成（`make deploy` でシークレット登録・コマンド登録に使用）:
@@ -182,6 +200,7 @@ Discord サーバーで `/agent` スラッシュコマンドを実行する。
 
 | コマンド | 内容 |
 |---|---|
+| `make claude` | claude コンテナで Claude Code を起動 |
 | `make test` | 全パッケージのテスト実行（internal + lambda-ingress + lambda-runner） |
 | `make lint` | gofmt + golangci-lint + terraform fmt + tflint |
 | `make check` | infracost + terraform plan でデプロイ前確認 |
