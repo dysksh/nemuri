@@ -24,7 +24,7 @@ dev:
 
 check:
 	infracost breakdown --path terraform/envs/dev
-	terraform -chdir=terraform/envs/dev init
+	terraform -chdir=terraform/envs/dev init -backend-config=backend.conf
 	terraform -chdir=terraform/envs/dev plan
 
 build-lambda:
@@ -35,7 +35,7 @@ build-and-push-ecr:
 	./scripts/build_and_push.sh
 
 terraform-apply:
-	terraform -chdir=terraform/envs/dev init
+	terraform -chdir=terraform/envs/dev init -backend-config=backend.conf
 	terraform -chdir=terraform/envs/dev apply -auto-approve
 
 put-secret:
@@ -58,17 +58,17 @@ deploy:
 	make terraform-apply
 	make build-and-push-ecr
 	make put-secret
-	. ./.env && make register-commands
-	. ./.env && make register-endpoint
+	make register-commands
+	make register-endpoint
 
 bootstrap:
 	./scripts/bootstrap_tfstate.sh
 
 register-commands:
-	./scripts/register_commands.sh
+	. ./.env && ./scripts/register_commands.sh
 
 register-endpoint:
-	./scripts/register_endpoint.sh
+	. ./.env && ./scripts/register_endpoint.sh
 
 test:
 	go test --count=1 -cover ./internal/... && \

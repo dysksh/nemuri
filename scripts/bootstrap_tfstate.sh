@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+BACKEND_CONF="$PROJECT_ROOT/terraform/envs/dev/backend.conf"
+
 AWS_REGION="${AWS_REGION:-ap-northeast-1}"
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 BUCKET_NAME="nemuri-tfstate-${AWS_ACCOUNT_ID}"
 
+# S3 バケットの作成
 if aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
   echo "Bucket already exists: $BUCKET_NAME"
 else
@@ -25,3 +30,13 @@ else
 
   echo "Bucket created with versioning enabled: $BUCKET_NAME"
 fi
+
+# backend.conf の生成
+cat > "$BACKEND_CONF" <<EOF
+bucket  = "${BUCKET_NAME}"
+key     = "dev/terraform.tfstate"
+region  = "${AWS_REGION}"
+profile = "default"
+EOF
+
+echo "Generated backend.conf: bucket=$BUCKET_NAME"

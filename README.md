@@ -95,7 +95,10 @@ nemuri/
 
 ### 2. リポジトリのクローンと開発コンテナの起動
 
+`make up` の前に `aws configure` で AWS 認証情報を設定しておくこと（初回起動時に tfstate 用 S3 バケットの作成が実行される）。
+
 ```bash
+aws configure     # Access Key ID, Secret Access Key, Region を設定
 git clone <repository-url>
 cd nemuri
 make up        # UID/GID を自動検出して開発コンテナ起動
@@ -112,11 +115,11 @@ VS Code の場合は「Reopen in Container」でも起動可能。
 
 ```bash
 cp .env.example .env
-# 以下を埋める:
-export DISCORD_APP_ID=...
-export DISCORD_BOT_TOKEN=...
-export ANTHROPIC_API_KEY=sk-ant-...
-export GITHUB_PAT=github_pat_...
+# 各値を埋める:
+export DISCORD_APP_ID=
+export DISCORD_BOT_TOKEN=
+export ANTHROPIC_API_KEY=
+export GITHUB_PAT=
 ```
 
 `terraform/envs/dev/terraform.tfvars` を作成:
