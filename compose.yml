@@ -30,6 +30,10 @@ services:
     user: ${USER_UID:-1000}:${USER_GID:-1000}
     volumes:
       - .:/workspace
+      - /dev/null:/workspace/.env:ro
+      - /dev/null:/workspace/terraform/envs/dev/backend.conf:ro
+      - /dev/null:/workspace/terraform/envs/dev/terraform.tfvars:ro
+      - empty-terraform:/workspace/terraform/envs/dev/.terraform:ro
       - ${HOME}/.claude:${DEV_HOME:-/home/dev}/.claude
       - ${HOME}/.claude.json:${DEV_HOME:-/home/dev}/.claude.json
       - claude-gomodcache:${DEV_HOME:-/home/dev}/go/pkg/mod
@@ -44,3 +48,4 @@ services:
 volumes:
   nvim-data:
   claude-gomodcache:
+  empty-terraform:
