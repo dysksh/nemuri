@@ -1,4 +1,7 @@
-FROM debian:12-slim
+# ============================================================
+# base: shared toolchain for both dev and claude containers
+# ============================================================
+FROM debian:12-slim AS base
 
 ARG TARGETARCH
 
@@ -80,11 +83,19 @@ RUN AWSCLI_ARCH=$([ "${TARGETARCH}" = "amd64" ] && echo "x86_64" || echo "aarch6
     && /tmp/aws/install \
     && rm -rf /tmp/awscli.zip /tmp/aws
 
-# Claude Code
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/* \
-    && npm install -g @anthropic-ai/claude-code
+# Non-root user (used when USER_UID != 0)
+RUN groupadd --gid 1000 dev \
+    && useradd --uid 1000 --gid 1000 -m -s /bin/bash dev \
+    && echo "dev ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/dev
+
+WORKDIR /workspace
+
+# ============================================================
+# dev: base + neovim (dotfiles are volume-mounted, no Claude)
+# ============================================================
+FROM base AS dev
+
+ARG TARGETARCH
 
 # Neovim
 RUN NVIM_ARCH=$([ "${TARGETARCH}" = "amd64" ] && echo "x86_64" || echo "arm64") \
@@ -92,9 +103,12 @@ RUN NVIM_ARCH=$([ "${TARGETARCH}" = "amd64" ] && echo "x86_64" || echo "arm64") 
     && tar -C /usr/local --strip-components=1 -xzf /tmp/nvim.tar.gz \
     && rm /tmp/nvim.tar.gz
 
-# Non-root user (used when USER_UID != 0)
-RUN groupadd --gid 1000 dev \
-    && useradd --uid 1000 --gid 1000 -m -s /bin/bash dev \
-    && echo "dev ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/dev
+# ============================================================
+# claude: base + Node.js + Claude Code (workspace only, no dotfiles)
+# ============================================================
+FROM base AS claude
 
-WORKDIR /workspace
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm install -g @anthropic-ai/claude-code

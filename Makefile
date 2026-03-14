@@ -1,4 +1,4 @@
-.PHONY: setup setup-hooks up down dev check build-lambda build-and-push-ecr terraform-apply put-secret deploy bootstrap register-commands register-endpoint test lint
+.PHONY: setup setup-hooks up down dev claude check build-lambda build-and-push-ecr terraform-apply put-secret deploy bootstrap register-commands register-endpoint test lint
 
 setup: 
 	make setup-hooks
@@ -21,6 +21,9 @@ down:
 
 dev:
 	docker compose exec dev bash
+
+claude:
+	docker compose exec claude claude
 
 check:
 	infracost breakdown --path terraform/envs/dev
