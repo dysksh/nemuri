@@ -1,7 +1,7 @@
 # --- S3 Bucket for artifacts and outputs ---
 
 resource "aws_s3_bucket" "storage" {
-  bucket = "${var.project}-${var.environment}-storage"
+  bucket = "${var.project}-${var.environment}-storage-${var.account_id}"
 
   force_destroy = false
 }

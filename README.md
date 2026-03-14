@@ -75,33 +75,95 @@ nemuri/
 ## 前提条件
 
 - Docker
+- AWS アカウント（IAM ユーザーまたはロールの認証情報を設定済み）
+- Anthropic API Key を取得済み（[Anthropic Console](https://console.anthropic.com/)）
+- GitHub Fine-grained Personal Access Token を取得済み（Administration / Contents / Pull Requests の Read and Write 権限）
 - Discord Developer Portal でアプリケーション作成済み
+  - **Application ID** / **Bot Token** / **Public Key** を控えておく
+  - Bot をサーバーに招待済み（権限: メッセージを送る・公開スレッドを作成・スレッドでメッセージを送る）
 
 ## 環境構築
 
-### Dev Container（推奨）
+### 1. Discord アプリ & Bot の作成（初回のみ）
 
-Go, Terraform, AWS CLI 等のバージョンが固定された開発コンテナを使用する。
+[Discord Developer Portal](https://discord.com/developers/applications) で以下を行う:
 
-VS Code の場合は「Reopen in Container」で自動起動。
+1. **New Application** でアプリを作成
+2. **General Information** から `APPLICATION ID` と `PUBLIC KEY` を控える
+3. **Bot** タブで Bot を作成し、`TOKEN` を控える
+4. **OAuth2 > URL Generator** で `bot` スコープを選択し、Bot Permissions で「Send Messages」「Create Public Threads」「Send Messages in Threads」を付与して、生成した URL でサーバーに招待
 
-docker compose の場合:
+### 2. リポジトリのクローンと開発コンテナの起動
+
+`make up` の前に `aws configure` で AWS 認証情報を設定しておくこと（初回起動時に tfstate 用 S3 バケットの作成が実行される）。
 
 ```bash
+aws configure     # Access Key ID, Secret Access Key, Region を設定
 git clone <repository-url>
 cd nemuri
-make up        # UID/GID を自動検出してコンテナ起動
+make up        # UID/GID を自動検出して開発コンテナ起動
 make dev       # コンテナ内にシェル接続
 ```
 
-`make up` はホストの UID/GID を自動検出してコンテナに渡すため、ファイル所有権の問題が発生しない。
+`make up` はホストの UID/GID を自動検出してコンテナに渡すため、ファイル所有権の問題が発生しない。初回起動時に `make setup`（Git hooks + `go mod download`）と `make bootstrap`（tfstate 用 S3 バケット作成）が自動実行される。
 
-初回起動時に `make setup`（Git hooks インストール + `go mod download`）が自動実行される。
+VS Code の場合は「Reopen in Container」でも起動可能。
 
-コンテナの停止:
+### 3. 環境変数・Terraform 変数の設定（初回のみ）
+
+`.env` を作成（`make deploy` でシークレット登録・コマンド登録に使用）:
 
 ```bash
-make down
+cp .env.example .env
+# 各値を埋める:
+export DISCORD_APP_ID=
+export DISCORD_BOT_TOKEN=
+export ANTHROPIC_API_KEY=
+export GITHUB_PAT=
+```
+
+`terraform/envs/dev/terraform.tfvars` を作成:
+
+```hcl
+environment          = "dev"
+project              = "nemuri"
+aws_region           = "ap-northeast-1"
+account_id           = "..."   # AWS のアカウントID
+discord_public_key   = "..."   # Discord Developer Portal > General Information > PUBLIC KEY
+default_github_owner = "..."   # GitHub のユーザー名 or Organization 名
+```
+
+### 4. デプロイ
+
+```bash
+make deploy
+```
+
+これだけで以下がすべて実行される:
+
+| ステップ | make ターゲット | 内容 |
+|---|---|---|
+| 1 | `build-lambda` | Lambda 関数のビルド |
+| 2 | `terraform-apply` | `terraform init` + `terraform apply -auto-approve` |
+| 3 | `build-and-push-ecr` | Docker イメージのビルド・ECR プッシュ |
+| 4 | `put-secret` | `.env` から AWS Secrets Manager にシークレット登録 |
+| 5 | `register-commands` | Discord スラッシュコマンド `/agent` を登録 |
+| 6 | `register-endpoint` | Terraform output から Interactions URL を取得し、Discord API で自動設定 |
+
+各ステップは個別に `make <ターゲット>` でも実行可能。
+
+### 5. 動作確認
+
+Discord サーバーで `/agent` スラッシュコマンドを実行する。
+
+### セットアップの全体像
+
+```
+1. Discord Developer Portal でアプリ & Bot 作成    ← 手動（初回のみ）
+2. git clone && make up && make dev                ← コマンド（bootstrap 自動実行）
+3. .env と terraform.tfvars を作成                  ← 手動（初回のみ）
+4. make deploy                                     ← コマンド（これだけで全自動）
+5. /agent で動作確認                                ← Discord
 ```
 
 ### ツールバージョン
@@ -114,67 +176,7 @@ make down
 | tflint | 0.61.0 |
 | AWS CLI | v2 |
 
-Dev Container を使わない場合は上記を個別にインストールする。
-
-### 手動セットアップ
-
-#### 1. リポジトリのクローンと初期設定
-
-```bash
-git clone <repository-url>
-cd nemuri
-make setup     # Git hooks インストール + go mod download
-```
-
-`make setup` は以下を実行する:
-- `scripts/pre-commit` → `.git/hooks/pre-commit` にコピー（コミット時に lint を自動実行）
-- `scripts/pre-push` → `.git/hooks/pre-push` にコピー（プッシュ時にテストを自動実行）
-- `go mod download`
-
-Git hooks だけ個別にインストールする場合は `make setup-hooks`。
-
-#### 2. 環境変数の設定
-
-プロジェクトルートに `.env` ファイルを作成し、以下の変数を設定する。`make put-secret` でこのファイルから AWS Secrets Manager に登録される。
-
-```bash
-ANTHROPIC_API_KEY=sk-ant-...
-DISCORD_BOT_TOKEN=...
-GITHUB_PAT=github_pat_...
-```
-
-#### 3. インフラのコスト確認・プラン
-
-デプロイ前に必ずコストとプランを確認する:
-
-```bash
-make check     # infracost breakdown + terraform init + terraform plan
-```
-
-#### 4. デプロイ
-
-Lambda ビルド、Docker イメージの ECR プッシュ、Terraform apply、シークレット登録をまとめて実行する。
-
-```bash
-make deploy
-```
-
-`make deploy` は以下を順に実行する:
-
-| ステップ | make ターゲット | 内容 |
-|---|---|---|
-| 1 | `make build-lambda` | Lambda 関数のビルド（`scripts/build_lambda_ingress.sh`, `scripts/build_lambda_runner.sh`） |
-| 2 | `make build-and-push-ecr` | Docker イメージのビルド・ECR プッシュ（`scripts/build_and_push.sh`） |
-| 3 | `make terraform-apply` | `terraform init` + `terraform apply -auto-approve`（`terraform/envs/dev`） |
-| 4 | `make put-secret` | `.env` から AWS Secrets Manager にシークレット登録 |
-
-個別に実行することも可能。
-
-#### 5. Discord スラッシュコマンドの登録
-
-```bash
-./scripts/register_commands.sh
-```
+開発コンテナを使わずホスト上で直接作業する場合は、上記を個別にインストールし、`make setup` と `make bootstrap` を手動で実行する。
 
 ### 開発時コマンド
 
@@ -182,11 +184,15 @@ make deploy
 |---|---|
 | `make test` | 全パッケージのテスト実行（internal + lambda-ingress + lambda-runner） |
 | `make lint` | gofmt + golangci-lint + terraform fmt + tflint |
+| `make check` | infracost + terraform plan でデプロイ前確認 |
+| `make deploy` | ビルド → インフラ構築 → シークレット登録 → Discord 設定を一括実行 |
 | `make build-lambda` | Lambda 関数のビルド |
 | `make build-and-push-ecr` | Docker イメージのビルド・ECR プッシュ |
 | `make terraform-apply` | Terraform の適用 |
 | `make put-secret` | `.env` のシークレットを Secrets Manager に登録 |
-| `make deploy` | 上記4つをまとめて実行 |
+| `make register-commands` | Discord スラッシュコマンドの登録 |
+| `make register-endpoint` | Discord Interactions URL の自動設定 |
+| `make bootstrap` | tfstate 用 S3 バケットの作成（初回のみ） |
 
 ## 関連ドキュメント
 

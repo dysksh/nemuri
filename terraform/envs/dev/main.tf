@@ -80,6 +80,7 @@ module "s3" {
 
   project     = var.project
   environment = var.environment
+  account_id  = var.account_id
 }
 
 # --- ECR ---

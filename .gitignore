@@ -5,6 +5,7 @@
 *.tfstate
 *.tfstate.*
 terraform.tfvars
+backend.conf
 
 # Build artifacts
 dist/
