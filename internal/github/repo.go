@@ -53,7 +53,7 @@ type CreateRepoResult struct {
 
 // CreateRepo creates a new private repository under the authenticated user.
 func (c *Client) CreateRepo(ctx context.Context, input CreateRepoInput) (*CreateRepoResult, error) {
-	url := fmt.Sprintf("%s/user/repos", githubAPIBase)
+	url := fmt.Sprintf("%s/user/repos", c.baseURL)
 
 	body, status, err := c.doAPI(ctx, http.MethodPost, url, map[string]any{
 		"name":        input.Name,
@@ -62,7 +62,7 @@ func (c *Client) CreateRepo(ctx context.Context, input CreateRepoInput) (*Create
 		"auto_init":   true, // create initial commit so we can branch from it
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create repo: %w", err)
 	}
 	if status != http.StatusCreated {
 		return nil, fmt.Errorf("create repo (%d): %s", status, truncateBody(body))
@@ -70,17 +70,17 @@ func (c *Client) CreateRepo(ctx context.Context, input CreateRepoInput) (*Create
 
 	var result CreateRepoResult
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create repo unmarshal: %w", err)
 	}
 	return &result, nil
 }
 
 // DeleteRepo deletes a repository. Used for rollback when post-creation steps fail.
 func (c *Client) DeleteRepo(ctx context.Context, owner, repo string) error {
-	url := fmt.Sprintf("%s/repos/%s/%s", githubAPIBase, owner, repo)
+	url := fmt.Sprintf("%s/repos/%s/%s", c.baseURL, owner, repo)
 	body, status, err := c.doAPI(ctx, http.MethodDelete, url, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("delete repo: %w", err)
 	}
 	if status != http.StatusNoContent {
 		return fmt.Errorf("delete repo (%d): %s", status, truncateBody(body))
@@ -91,12 +91,12 @@ func (c *Client) DeleteRepo(ctx context.Context, owner, repo string) error {
 // WaitForRepoReady polls the default branch ref until it exists.
 // This is needed after CreateRepo with auto_init, as the initial commit may not be immediately available.
 func (c *Client) WaitForRepoReady(ctx context.Context, owner, repo, defaultBranch string) error {
-	refURL := fmt.Sprintf("%s/repos/%s/%s/git/refs/heads/%s", githubAPIBase, owner, repo, defaultBranch)
+	refURL := fmt.Sprintf("%s/repos/%s/%s/git/refs/heads/%s", c.baseURL, owner, repo, defaultBranch)
 
 	for range repoReadyMaxRetries {
 		_, status, err := c.doAPI(ctx, http.MethodGet, refURL, nil)
 		if err != nil {
-			return err
+			return fmt.Errorf("wait for repo ready: %w", err)
 		}
 		if status == http.StatusOK {
 			return nil
@@ -113,10 +113,10 @@ func (c *Client) WaitForRepoReady(ctx context.Context, owner, repo, defaultBranc
 
 // GetDefaultBranch returns the default branch name for a repo.
 func (c *Client) GetDefaultBranch(ctx context.Context, owner, repo string) (string, error) {
-	url := fmt.Sprintf("%s/repos/%s/%s", githubAPIBase, owner, repo)
+	url := fmt.Sprintf("%s/repos/%s/%s", c.baseURL, owner, repo)
 	body, status, err := c.doAPI(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("get default branch: %w", err)
 	}
 	if status != http.StatusOK {
 		return "", fmt.Errorf("get repo (%d): %s", status, truncateBody(body))
@@ -126,7 +126,7 @@ func (c *Client) GetDefaultBranch(ctx context.Context, owner, repo string) (stri
 		DefaultBranch string `json:"default_branch"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
-		return "", err
+		return "", fmt.Errorf("get default branch unmarshal: %w", err)
 	}
 	return result.DefaultBranch, nil
 }
@@ -134,10 +134,10 @@ func (c *Client) GetDefaultBranch(ctx context.Context, owner, repo string) (stri
 // CreateBranch creates a new branch from the tip of the base branch.
 func (c *Client) CreateBranch(ctx context.Context, owner, repo, baseBranch, newBranch string) error {
 	// Get the SHA of the base branch
-	refURL := fmt.Sprintf("%s/repos/%s/%s/git/refs/heads/%s", githubAPIBase, owner, repo, baseBranch)
+	refURL := fmt.Sprintf("%s/repos/%s/%s/git/refs/heads/%s", c.baseURL, owner, repo, baseBranch)
 	body, status, err := c.doAPI(ctx, http.MethodGet, refURL, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("create branch get ref: %w", err)
 	}
 	if status != http.StatusOK {
 		return fmt.Errorf("get ref (%d): %s", status, truncateBody(body))
@@ -149,17 +149,17 @@ func (c *Client) CreateBranch(ctx context.Context, owner, repo, baseBranch, newB
 		} `json:"object"`
 	}
 	if err := json.Unmarshal(body, &ref); err != nil {
-		return err
+		return fmt.Errorf("create branch unmarshal ref: %w", err)
 	}
 
 	// Create new branch ref
-	createURL := fmt.Sprintf("%s/repos/%s/%s/git/refs", githubAPIBase, owner, repo)
+	createURL := fmt.Sprintf("%s/repos/%s/%s/git/refs", c.baseURL, owner, repo)
 	body, status, err = c.doAPI(ctx, http.MethodPost, createURL, map[string]string{
 		"ref": "refs/heads/" + newBranch,
 		"sha": ref.Object.SHA,
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("create branch ref: %w", err)
 	}
 	if status != http.StatusCreated {
 		return fmt.Errorf("create branch ref (%d): %s", status, truncateBody(body))
@@ -170,10 +170,10 @@ func (c *Client) CreateBranch(ctx context.Context, owner, repo, baseBranch, newB
 // CommitFiles commits multiple files to a branch using the Git Data API.
 func (c *Client) CommitFiles(ctx context.Context, owner, repo, branch, message string, files []FileEntry) error {
 	// 1. Get the current commit SHA of the branch
-	refURL := fmt.Sprintf("%s/repos/%s/%s/git/refs/heads/%s", githubAPIBase, owner, repo, branch)
+	refURL := fmt.Sprintf("%s/repos/%s/%s/git/refs/heads/%s", c.baseURL, owner, repo, branch)
 	body, status, err := c.doAPI(ctx, http.MethodGet, refURL, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("commit get branch ref: %w", err)
 	}
 	if status != http.StatusOK {
 		return fmt.Errorf("get branch ref (%d): %s", status, truncateBody(body))
@@ -185,14 +185,14 @@ func (c *Client) CommitFiles(ctx context.Context, owner, repo, branch, message s
 		} `json:"object"`
 	}
 	if err := json.Unmarshal(body, &ref); err != nil {
-		return err
+		return fmt.Errorf("commit unmarshal branch ref: %w", err)
 	}
 
 	// 2. Get the tree SHA of that commit
-	commitURL := fmt.Sprintf("%s/repos/%s/%s/git/commits/%s", githubAPIBase, owner, repo, ref.Object.SHA)
+	commitURL := fmt.Sprintf("%s/repos/%s/%s/git/commits/%s", c.baseURL, owner, repo, ref.Object.SHA)
 	body, status, err = c.doAPI(ctx, http.MethodGet, commitURL, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("commit get tree: %w", err)
 	}
 	if status != http.StatusOK {
 		return fmt.Errorf("get commit (%d): %s", status, truncateBody(body))
@@ -204,7 +204,7 @@ func (c *Client) CommitFiles(ctx context.Context, owner, repo, branch, message s
 		} `json:"tree"`
 	}
 	if err := json.Unmarshal(body, &commit); err != nil {
-		return err
+		return fmt.Errorf("commit unmarshal tree: %w", err)
 	}
 
 	// 3. Create blobs for each file
@@ -217,7 +217,10 @@ func (c *Client) CommitFiles(ctx context.Context, owner, repo, branch, message s
 	entries := make([]treeEntry, 0, len(files))
 
 	for _, f := range files {
-		blobURL := fmt.Sprintf("%s/repos/%s/%s/git/blobs", githubAPIBase, owner, repo)
+		if f.Path == "" {
+			return fmt.Errorf("file entry has empty path")
+		}
+		blobURL := fmt.Sprintf("%s/repos/%s/%s/git/blobs", c.baseURL, owner, repo)
 		body, status, err = c.doAPI(ctx, http.MethodPost, blobURL, map[string]string{
 			"content":  base64.StdEncoding.EncodeToString(f.Content),
 			"encoding": "base64",
@@ -233,7 +236,7 @@ func (c *Client) CommitFiles(ctx context.Context, owner, repo, branch, message s
 			SHA string `json:"sha"`
 		}
 		if err := json.Unmarshal(body, &blob); err != nil {
-			return err
+			return fmt.Errorf("unmarshal blob for %s: %w", f.Path, err)
 		}
 
 		entries = append(entries, treeEntry{
@@ -245,13 +248,13 @@ func (c *Client) CommitFiles(ctx context.Context, owner, repo, branch, message s
 	}
 
 	// 4. Create a new tree
-	treeURL := fmt.Sprintf("%s/repos/%s/%s/git/trees", githubAPIBase, owner, repo)
+	treeURL := fmt.Sprintf("%s/repos/%s/%s/git/trees", c.baseURL, owner, repo)
 	body, status, err = c.doAPI(ctx, http.MethodPost, treeURL, map[string]any{
 		"base_tree": commit.Tree.SHA,
 		"tree":      entries,
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("create tree: %w", err)
 	}
 	if status != http.StatusCreated {
 		return fmt.Errorf("create tree (%d): %s", status, truncateBody(body))
@@ -261,18 +264,18 @@ func (c *Client) CommitFiles(ctx context.Context, owner, repo, branch, message s
 		SHA string `json:"sha"`
 	}
 	if err := json.Unmarshal(body, &tree); err != nil {
-		return err
+		return fmt.Errorf("unmarshal tree: %w", err)
 	}
 
 	// 5. Create a new commit
-	newCommitURL := fmt.Sprintf("%s/repos/%s/%s/git/commits", githubAPIBase, owner, repo)
+	newCommitURL := fmt.Sprintf("%s/repos/%s/%s/git/commits", c.baseURL, owner, repo)
 	body, status, err = c.doAPI(ctx, http.MethodPost, newCommitURL, map[string]any{
 		"message": message,
 		"tree":    tree.SHA,
 		"parents": []string{ref.Object.SHA},
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("create commit: %w", err)
 	}
 	if status != http.StatusCreated {
 		return fmt.Errorf("create commit (%d): %s", status, truncateBody(body))
@@ -282,7 +285,7 @@ func (c *Client) CommitFiles(ctx context.Context, owner, repo, branch, message s
 		SHA string `json:"sha"`
 	}
 	if err := json.Unmarshal(body, &newCommit); err != nil {
-		return err
+		return fmt.Errorf("unmarshal commit: %w", err)
 	}
 
 	// 6. Update the branch ref to point to the new commit (non-force to detect conflicts)
@@ -291,7 +294,7 @@ func (c *Client) CommitFiles(ctx context.Context, owner, repo, branch, message s
 		"force": false,
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("update ref: %w", err)
 	}
 	if status == http.StatusUnprocessableEntity {
 		return fmt.Errorf("branch %s was modified concurrently; commit aborted to prevent overwrite", branch)
@@ -305,7 +308,7 @@ func (c *Client) CommitFiles(ctx context.Context, owner, repo, branch, message s
 
 // CreatePR creates a pull request.
 func (c *Client) CreatePR(ctx context.Context, input PRInput) (*PRResult, error) {
-	url := fmt.Sprintf("%s/repos/%s/%s/pulls", githubAPIBase, input.Owner, input.Repo)
+	url := fmt.Sprintf("%s/repos/%s/%s/pulls", c.baseURL, input.Owner, input.Repo)
 	body, status, err := c.doAPI(ctx, http.MethodPost, url, map[string]string{
 		"title": input.Title,
 		"body":  input.Body,
@@ -313,7 +316,7 @@ func (c *Client) CreatePR(ctx context.Context, input PRInput) (*PRResult, error)
 		"base":  input.Base,
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create PR: %w", err)
 	}
 	if status != http.StatusCreated {
 		return nil, fmt.Errorf("create PR (%d): %s", status, truncateBody(body))
@@ -321,7 +324,7 @@ func (c *Client) CreatePR(ctx context.Context, input PRInput) (*PRResult, error)
 
 	var result PRResult
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create PR unmarshal: %w", err)
 	}
 	return &result, nil
 }

@@ -19,10 +19,10 @@ type TreeEntry struct {
 
 // GetTree returns the full file tree of a repository at the given ref (branch/tag/SHA).
 func (c *Client) GetTree(ctx context.Context, owner, repo, ref string) ([]TreeEntry, error) {
-	url := fmt.Sprintf("%s/repos/%s/%s/git/trees/%s?recursive=1", githubAPIBase, owner, repo, ref)
+	url := fmt.Sprintf("%s/repos/%s/%s/git/trees/%s?recursive=1", c.baseURL, owner, repo, ref)
 	body, status, err := c.doAPI(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get tree: %w", err)
 	}
 	if status != http.StatusOK {
 		return nil, fmt.Errorf("get tree (%d): %s", status, truncateBody(body))
@@ -33,7 +33,7 @@ func (c *Client) GetTree(ctx context.Context, owner, repo, ref string) ([]TreeEn
 		Truncated bool        `json:"truncated"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get tree unmarshal: %w", err)
 	}
 	if result.Truncated {
 		slog.Warn("repository tree was truncated by GitHub API", "owner", owner, "repo", repo, "ref", ref, "entries", len(result.Tree))
@@ -45,10 +45,10 @@ func (c *Client) GetTree(ctx context.Context, owner, repo, ref string) ([]TreeEn
 // Uses the GitHub Contents API (supports files up to 1 MB).
 // Returns []byte to safely handle both text and binary files.
 func (c *Client) GetFileContent(ctx context.Context, owner, repo, path, ref string) ([]byte, error) {
-	url := fmt.Sprintf("%s/repos/%s/%s/contents/%s?ref=%s", githubAPIBase, owner, repo, path, ref)
+	url := fmt.Sprintf("%s/repos/%s/%s/contents/%s?ref=%s", c.baseURL, owner, repo, path, ref)
 	body, status, err := c.doAPI(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get file content: %w", err)
 	}
 	if status != http.StatusOK {
 		return nil, fmt.Errorf("get content (%d): %s", status, truncateBody(body))
@@ -60,7 +60,7 @@ func (c *Client) GetFileContent(ctx context.Context, owner, repo, path, ref stri
 		Size     int    `json:"size"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get file content unmarshal: %w", err)
 	}
 
 	if result.Encoding != "base64" {

@@ -12,14 +12,16 @@ import (
 )
 
 const (
-	discordBaseURL      = "https://discord.com/api/v10"
-	maxContentLen       = 2000 // Discord message content limit
+	discordBaseURL = "https://discord.com/api/v10"
+	// MaxContentLen is the Discord message content character limit.
+	MaxContentLen       = 2000
 	maxErrorResponseLen = 4096 // max bytes of API error response to read
 )
 
 // Client sends messages to Discord.
 type Client struct {
 	botToken   string
+	baseURL    string // defaults to discordBaseURL
 	httpClient *http.Client
 }
 
@@ -27,6 +29,7 @@ type Client struct {
 func NewClient(botToken string) *Client {
 	return &Client{
 		botToken:   botToken,
+		baseURL:    discordBaseURL,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
 }
@@ -48,20 +51,20 @@ type threadResponse struct {
 // SendFollowUp sends a follow-up message using the interaction webhook.
 // This works within 15 minutes of the original interaction.
 func (c *Client) SendFollowUp(ctx context.Context, applicationID, interactionToken, content string) error {
-	url := fmt.Sprintf("%s/webhooks/%s/%s", discordBaseURL, applicationID, interactionToken)
+	url := fmt.Sprintf("%s/webhooks/%s/%s", c.baseURL, applicationID, interactionToken)
 	return c.postMessage(ctx, url, content, false)
 }
 
 // SendChannelMessage sends a message to a channel using the bot token.
 // Use this when the interaction token has expired.
 func (c *Client) SendChannelMessage(ctx context.Context, channelID, content string) error {
-	url := fmt.Sprintf("%s/channels/%s/messages", discordBaseURL, channelID)
+	url := fmt.Sprintf("%s/channels/%s/messages", c.baseURL, channelID)
 	return c.postMessage(ctx, url, content, true)
 }
 
 // SendResult tries follow-up first, falls back to channel message on failure.
 func (c *Client) SendResult(ctx context.Context, applicationID, interactionToken, channelID, content string) error {
-	content = truncate(content, maxContentLen)
+	content = Truncate(content, MaxContentLen, "\n...(truncated)")
 
 	followUpErr := c.SendFollowUp(ctx, applicationID, interactionToken, content)
 	if followUpErr == nil {
@@ -80,7 +83,7 @@ func (c *Client) SendResult(ctx context.Context, applicationID, interactionToken
 // supported for GUILD_FORUM / GUILD_MEDIA channels).
 // Returns the thread ID (channel ID of the thread).
 func (c *Client) CreateThread(ctx context.Context, channelID, name, initialMessage string) (string, error) {
-	url := fmt.Sprintf("%s/channels/%s/threads", discordBaseURL, channelID)
+	url := fmt.Sprintf("%s/channels/%s/threads", c.baseURL, channelID)
 
 	payload := createThreadPayload{
 		Name:                name,
@@ -106,7 +109,10 @@ func (c *Client) CreateThread(ctx context.Context, channelID, name, initialMessa
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorResponseLen))
+	respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, maxErrorResponseLen))
+	if readErr != nil {
+		return "", fmt.Errorf("read thread response body: %w", readErr)
+	}
 
 	if resp.StatusCode >= 400 {
 		return "", fmt.Errorf("discord API error (%d): %s", resp.StatusCode, string(respBody))
@@ -151,18 +157,26 @@ func (c *Client) postMessage(ctx context.Context, url, content string, useBotAut
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorResponseLen))
+		respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, maxErrorResponseLen))
+		if readErr != nil {
+			slog.Warn("failed to read error response body", "error", readErr)
+		}
 		return fmt.Errorf("discord API error (%d): %s", resp.StatusCode, string(respBody))
 	}
 
 	return nil
 }
 
-func truncate(s string, max int) string {
+// Truncate truncates a string to max runes, appending suffix if truncated.
+// If suffix is empty, "..." is used as default.
+func Truncate(s string, max int, suffix string) string {
+	if suffix == "" {
+		suffix = "..."
+	}
 	runes := []rune(s)
 	if len(runes) <= max {
 		return s
 	}
-	suffix := "\n...(truncated)"
-	return string(runes[:max-len([]rune(suffix))]) + suffix
+	suffixRunes := []rune(suffix)
+	return string(runes[:max-len(suffixRunes)]) + suffix
 }

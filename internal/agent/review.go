@@ -9,15 +9,6 @@ import (
 	"github.com/nemuri/nemuri/internal/llm"
 )
 
-// Review loop constants.
-const (
-	DefaultMaxRevisions         = 3
-	DefaultPassThreshold        = 7.0
-	DefaultMinImprovementRounds = 2
-	DefaultMinImprovement       = 0.1
-	DefaultMaxSameIssueCount    = 3
-)
-
 // ReviewConfig controls the review loop behavior.
 type ReviewConfig struct {
 	MaxRevisions         int     // maximum number of review-rewrite iterations
@@ -30,11 +21,11 @@ type ReviewConfig struct {
 // DefaultReviewConfig returns the default review configuration.
 func DefaultReviewConfig() ReviewConfig {
 	return ReviewConfig{
-		MaxRevisions:         DefaultMaxRevisions,
-		PassThreshold:        DefaultPassThreshold,
-		MinImprovementRounds: DefaultMinImprovementRounds,
-		MinImprovement:       DefaultMinImprovement,
-		MaxSameIssueCount:    DefaultMaxSameIssueCount,
+		MaxRevisions:         3,
+		PassThreshold:        7.0,
+		MinImprovementRounds: 2,
+		MinImprovement:       0.1,
+		MaxSameIssueCount:    3,
 	}
 }
 
@@ -48,7 +39,12 @@ type ReviewScores struct {
 
 // Average returns the mean of all scores.
 func (s ReviewScores) Average() float64 {
-	return (s.Correctness + s.Security + s.Maintainability + s.Completeness) / 4.0
+	scores := []float64{s.Correctness, s.Security, s.Maintainability, s.Completeness}
+	var sum float64
+	for _, v := range scores {
+		sum += v
+	}
+	return sum / float64(len(scores))
 }
 
 // ReviewIssue describes a single issue found during review.
@@ -80,7 +76,7 @@ type ReviewLoopResult struct {
 // Review evaluates the given agent response using the LLM.
 func (a *Agent) Review(ctx context.Context, prompt string, resp *AgentResponse) (*ReviewResult, int, int, error) {
 	reviewInput := buildReviewInput(prompt, resp)
-	messages := []llm.Message{{Role: "user", Content: reviewInput}}
+	messages := []llm.Message{{Role: llm.RoleUser, Content: reviewInput}}
 	opts := buildReviewSendOptions()
 
 	llmResp, err := a.llm.SendMessage(ctx, reviewPrompt, messages, opts)
@@ -106,7 +102,7 @@ func (a *Agent) Review(ctx context.Context, prompt string, resp *AgentResponse) 
 // Rewrite fixes flagged issues in the agent response using the LLM.
 func (a *Agent) Rewrite(ctx context.Context, prompt string, resp *AgentResponse, review *ReviewResult) (*AgentResponse, int, int, error) {
 	rewriteInput := buildRewriteInput(prompt, resp, review)
-	messages := []llm.Message{{Role: "user", Content: rewriteInput}}
+	messages := []llm.Message{{Role: llm.RoleUser, Content: rewriteInput}}
 	opts := buildRewriteSendOptions()
 
 	llmResp, err := a.llm.SendMessage(ctx, rewritePrompt, messages, opts)

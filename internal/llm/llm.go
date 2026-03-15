@@ -5,9 +5,15 @@ import (
 	"encoding/json"
 )
 
+// Role constants for conversation messages.
+const (
+	RoleUser      = "user"
+	RoleAssistant = "assistant"
+)
+
 // Message represents a single message in a conversation.
 type Message struct {
-	Role    string `json:"role"` // "user" or "assistant"
+	Role    string `json:"role"` // RoleUser or RoleAssistant
 	Content any    `json:"content"`
 }
 
@@ -17,21 +23,6 @@ type ToolResultBlock struct {
 	ToolUseID string `json:"tool_use_id"`
 	Content   string `json:"content"`
 	IsError   bool   `json:"is_error,omitempty"`
-}
-
-// NewToolResultMessage creates a user message containing a tool result.
-func NewToolResultMessage(toolID, content string, isError bool) Message {
-	return Message{
-		Role: "user",
-		Content: []ToolResultBlock{
-			{
-				Type:      "tool_result",
-				ToolUseID: toolID,
-				Content:   content,
-				IsError:   isError,
-			},
-		},
-	}
 }
 
 // ToolDefinition defines a tool that the LLM can call.
@@ -82,12 +73,12 @@ func (r *Response) HasToolUse() bool {
 
 // AssistantMessage creates a Message from this response for conversation history.
 func (r *Response) AssistantMessage() Message {
-	return Message{Role: "assistant", Content: r.RawContent}
+	return Message{Role: RoleAssistant, Content: r.RawContent}
 }
 
 // NewToolResultsMessage creates a user message containing multiple tool results.
 func NewToolResultsMessage(results []ToolResultBlock) Message {
-	return Message{Role: "user", Content: results}
+	return Message{Role: RoleUser, Content: results}
 }
 
 // Client is the interface for LLM providers.
