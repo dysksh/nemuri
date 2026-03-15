@@ -118,6 +118,20 @@ Terraform implementation order (follows dependency graph):
 - [x] Implement WAITING_APPROVAL for PR merge
 - [x] Verify: agent asks question → user answers → agent resumes
 
+### Post-MVP — Refactoring & Quality
+
+**Goal**: Improve code quality, testability, and maintainability.
+
+- [x] Extract job execution logic into `internal/executor/` package
+- [x] Introduce `github.API` interface for testability
+- [x] Add `llm.RoleUser` / `llm.RoleAssistant` constants (replace magic strings)
+- [x] Remove unused `READY_FOR_PR` state and `step` field
+- [x] Add `baseURL` field to GitHub/Discord clients for test server injection
+- [x] Improve error messages with context wrapping across GitHub client
+- [x] Add YAML frontmatter stripping to Markdown → PDF converter
+- [x] Add Markdown output format instruction to Gathering phase prompt
+- [x] Add tests: Discord client, GitHub client, executor, converter
+
 ## Future Phases (Post-MVP)
 
 - Multi-model review (different models for security vs. style)

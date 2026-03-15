@@ -8,7 +8,7 @@ See [SPEC.md](SPEC.md) for detailed architecture, [PLAN.md](PLAN.md) for impleme
 
 ## Project Status
 
-Phase 8 (User Interaction) implemented. Phases 0–8 are complete. Next: verification testing and future phases.
+Phase 8 (User Interaction) implemented. Phases 0–8 are complete. Post-MVP refactoring in progress (executor extraction, interface introduction, state simplification). Next: verification testing and future phases.
 
 ## Tech Stack
 
@@ -50,11 +50,12 @@ nemuri/
 │   └── lambda-runner/       # SQS → ECS RunTask (Lambda)
 ├── internal/
 │   ├── agent/               # Agent loop, Reviewer, Rewriter, prompts
+│   ├── executor/            # Job execution orchestrator (code/file/text delivery, resume, notifications)
 │   ├── llm/                 # LLM Adapter interface + Claude implementation
 │   ├── state/               # DynamoDB state management, transitions
-│   ├── converter/           # Markdown → HTML → PDF conversion
+│   ├── converter/           # Markdown → HTML → PDF conversion (frontmatter stripping)
 │   ├── discord/             # Discord API client
-│   ├── github/              # GitHub API client (repo, content, PR)
+│   ├── github/              # GitHub API client (interface + implementation)
 │   ├── secrets/             # AWS Secrets Manager wrapper
 │   └── storage/             # S3 operations wrapper
 ├── terraform/

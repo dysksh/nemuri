@@ -81,6 +81,18 @@
 - [x] Implement WAITING_APPROVAL state for PR merge flow
 - [x] Test: agent asks question → user answers → agent resumes and completes
 
+## Post-MVP: Refactoring & Quality
+
+- [x] Extract job execution logic into `internal/executor/` package
+- [x] Introduce `github.API` interface for testability
+- [x] Add `llm.RoleUser` / `llm.RoleAssistant` constants
+- [x] Remove unused `READY_FOR_PR` state and `step` field
+- [x] Add `baseURL` field to GitHub/Discord clients for test injection
+- [x] Improve error messages with context wrapping (GitHub client)
+- [x] Add YAML frontmatter stripping to Markdown → PDF converter
+- [x] Add Markdown output format instruction to Gathering phase prompt
+- [x] Add tests: Discord client, GitHub client, executor, converter
+
 ## Future (Post-MVP)
 
 - [ ] Multi-model review (security reviewer + style reviewer)
