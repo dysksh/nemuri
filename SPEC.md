@@ -126,8 +126,8 @@ If score >= threshold:
   → proceed to PR creation or output delivery
 ```
 
-Safety: max_revision limit (e.g., 10) to prevent infinite loops.
-Convergence detection: stop if same issue flagged 3 times or score improvement < 0.1 for 3 rounds.
+Safety: max_revision limit (default: 3) to prevent infinite loops.
+Convergence detection: stop if same issue flagged 3 times or score improvement < 0.1 for 2 rounds.
 
 ### 7. DynamoDB — Jobs Table
 
@@ -143,8 +143,7 @@ Convergence detection: stop if same issue flagged 3 times or score improvement <
   "interaction_token": "...",
   "application_id": "...",
 
-  "state": "INIT | RUNNING | WAITING_USER_INPUT | READY_FOR_PR | WAITING_APPROVAL | DONE | FAILED",
-  "step": "planning | building | review_loop | pr_creation",
+  "state": "INIT | RUNNING | WAITING_USER_INPUT | WAITING_APPROVAL | DONE | FAILED",
   "revision": 0,
 
   "worker_id": "uuid",
@@ -173,7 +172,7 @@ Convergence detection: stop if same issue flagged 3 times or score improvement <
 
 ```
 INIT → RUNNING → WAITING_USER_INPUT → (user responds) → RUNNING
-INIT → RUNNING → READY_FOR_PR → WAITING_APPROVAL → DONE
+INIT → RUNNING → WAITING_APPROVAL → DONE  (PR created, awaiting user approval)
 INIT → RUNNING → DONE  (simple jobs that complete without PR)
 Any  → FAILED
 ```
@@ -182,10 +181,9 @@ Allowed transitions (enforced in code):
 
 ```
 INIT              → [RUNNING]
-RUNNING           → [WAITING_USER_INPUT, READY_FOR_PR, DONE, FAILED]
+RUNNING           → [WAITING_USER_INPUT, WAITING_APPROVAL, DONE, FAILED]
 WAITING_USER_INPUT→ [RUNNING]
-READY_FOR_PR      → [WAITING_APPROVAL]
-WAITING_APPROVAL  → [DONE]
+WAITING_APPROVAL  → [DONE, FAILED]
 ```
 
 #### Locking & Concurrency

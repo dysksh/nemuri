@@ -42,11 +42,12 @@ nemuri/
 │   └── lambda-runner/       # SQS → ECS RunTask
 ├── internal/
 │   ├── agent/               # Agent loop, Reviewer, Rewriter, prompts
+│   ├── executor/            # ジョブ実行オーケストレータ（成果物配信・会話再開・通知）
 │   ├── llm/                 # LLMアダプタ (Claude API実装)
 │   ├── state/               # DynamoDB状態管理・状態遷移
-│   ├── converter/           # Markdown → HTML → PDF 変換
+│   ├── converter/           # Markdown → HTML → PDF 変換（frontmatter除去）
 │   ├── discord/             # Discord API クライアント
-│   ├── github/              # GitHub API クライアント
+│   ├── github/              # GitHub API クライアント（インターフェース + 実装）
 │   ├── secrets/             # AWS Secrets Manager
 │   └── storage/             # S3操作
 ├── terraform/

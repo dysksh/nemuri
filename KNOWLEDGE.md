@@ -98,7 +98,7 @@
 
 **Rationale**:
 - Agent Engine is essentially a "smart batch application"
-- State machine is simple (7 states, fixed transitions)
+- State machine is simple (6 states, fixed transitions)
 - Frameworks (LangGraph, etc.) add abstraction overhead without clear benefit
 - DynamoDB conditional writes provide sufficient concurrency control
 
@@ -156,6 +156,35 @@
 
 **Important**: Heartbeat updates do NOT increment version. Version is incremented only on meaningful state changes.
 
+### State Simplification: READY_FOR_PR and step Removed
+
+**Decision**: Remove `READY_FOR_PR` state and `step` field from DynamoDB Job schema
+
+**Rationale**:
+- `READY_FOR_PR` was an intermediate state between RUNNING and WAITING_APPROVAL, but PR creation and state transition happen atomically in the executor — there is no window where the job is "ready for PR" but the PR hasn't been created
+- RUNNING → WAITING_APPROVAL is a direct transition; the intermediate state added no value
+- The `step` field (planning, building, review_loop, pr_creation) tracked execution phases but was never used for resume or retry logic. Phase tracking is internal to the agent loop (gathering/generating) and does not need to be persisted in DynamoDB
+
+### Executor Extraction
+
+**Decision**: Extract job execution logic from `cmd/agent-engine/main.go` into `internal/executor/` package
+
+**Rationale**:
+- `main.go` had grown to ~700 lines with mixed concerns (ECS lifecycle + job execution + Discord/GitHub/S3 delivery)
+- The executor package handles: job execution orchestration, code/file/text delivery, conversation resume, Discord thread/notification management
+- `main.go` is now focused on ECS lifecycle (env parsing, heartbeat, SQS management, state transitions)
+- Enables testability: `github.API` interface allows mocking in executor tests
+
+### PDF Frontmatter Handling
+
+**Decision**: Strip YAML frontmatter from Markdown before HTML/PDF conversion
+
+**Rationale**:
+- The LLM sometimes generates Markdown with YAML frontmatter (`---` delimited metadata block at the top)
+- goldmark does not parse frontmatter; it renders the `---` delimiters as `<hr>` tags and the metadata as plain text or setext headings
+- Stripping frontmatter before conversion ensures clean PDF output regardless of LLM behavior
+- Lightweight string-based approach avoids adding a goldmark extension dependency
+
 ## Concurrency & Reliability Patterns
 
 ### SQS Visibility Timeout
@@ -169,7 +198,7 @@
 
 - SQS is at-least-once delivery; duplicate processing is possible
 - Guard: check DynamoDB state before executing each step
-- Guard: skip step if already completed (based on `step` and `revision`)
+- Guard: skip step if already completed (based on state and `revision`)
 - Guard: don't create PR if already exists
 
 ### Heartbeat & Recovery
@@ -184,7 +213,7 @@
 - ECS local storage is ephemeral (destroyed on task exit)
 - All intermediate results saved to S3 (`artifacts/` prefix)
 - Code pushed to GitHub branch after each significant step
-- DynamoDB records current `step` and `revision` for resume
+- DynamoDB records current state and `revision` for resume
 
 ## S3 Design Philosophy
 
