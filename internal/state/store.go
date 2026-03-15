@@ -30,7 +30,6 @@ type Job struct {
 	ApplicationID    string `dynamodbav:"application_id"`
 
 	State    JobState `dynamodbav:"state"`
-	Step     string   `dynamodbav:"step,omitempty"`
 	Revision int      `dynamodbav:"revision"`
 
 	WorkerID    string `dynamodbav:"worker_id,omitempty"`

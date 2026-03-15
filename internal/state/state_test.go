@@ -20,7 +20,6 @@ func TestValidateTransition(t *testing.T) {
 
 		// RUNNING transitions
 		{"RUNNING→WAITING_USER_INPUT", state.StateRunning, state.StateWaitingUserInput, false},
-		{"RUNNING→READY_FOR_PR", state.StateRunning, state.StateReadyForPR, false},
 		{"RUNNING→DONE", state.StateRunning, state.StateDone, false},
 		{"RUNNING→FAILED", state.StateRunning, state.StateFailed, false},
 		{"RUNNING→INIT rejected", state.StateRunning, state.StateInit, true},
@@ -28,10 +27,6 @@ func TestValidateTransition(t *testing.T) {
 		// WAITING_USER_INPUT transitions
 		{"WAITING_USER_INPUT→RUNNING", state.StateWaitingUserInput, state.StateRunning, false},
 		{"WAITING_USER_INPUT→DONE rejected", state.StateWaitingUserInput, state.StateDone, true},
-
-		// READY_FOR_PR transitions
-		{"READY_FOR_PR→WAITING_APPROVAL", state.StateReadyForPR, state.StateWaitingApproval, false},
-		{"READY_FOR_PR→DONE rejected", state.StateReadyForPR, state.StateDone, true},
 
 		// WAITING_APPROVAL transitions
 		{"WAITING_APPROVAL→DONE", state.StateWaitingApproval, state.StateDone, false},

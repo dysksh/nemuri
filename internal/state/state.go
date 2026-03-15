@@ -9,7 +9,6 @@ const (
 	StateInit             JobState = "INIT"
 	StateRunning          JobState = "RUNNING"
 	StateWaitingUserInput JobState = "WAITING_USER_INPUT"
-	StateReadyForPR       JobState = "READY_FOR_PR"
 	StateWaitingApproval  JobState = "WAITING_APPROVAL"
 	StateDone             JobState = "DONE"
 	StateFailed           JobState = "FAILED"
@@ -18,9 +17,8 @@ const (
 // allowedTransitions defines the valid state transitions.
 var allowedTransitions = map[JobState][]JobState{
 	StateInit:             {StateRunning},
-	StateRunning:          {StateWaitingUserInput, StateReadyForPR, StateWaitingApproval, StateDone, StateFailed},
+	StateRunning:          {StateWaitingUserInput, StateWaitingApproval, StateDone, StateFailed},
 	StateWaitingUserInput: {StateRunning},
-	StateReadyForPR:       {StateWaitingApproval},
 	StateWaitingApproval:  {StateDone, StateFailed},
 }
 

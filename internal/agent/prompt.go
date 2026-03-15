@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/nemuri/nemuri/internal/llm"
@@ -66,6 +67,7 @@ Rules:
 - If you need clarification from the user, use ask_user_question.
 - For new_repo tasks (creating brand-new repositories), there is no existing code to read. Immediately provide your plan as a text response.
 - For file generation tasks (documents, reports, configs, etc.) that do NOT mention a specific repository, treat them as standalone file generation. Do NOT ask the user whether a repository is involved — immediately provide your plan as a text response without calling repo tools.
+- For document/report tasks, always use Markdown format (.md). The system automatically converts Markdown files to PDF. Do NOT ask the user about output format (LaTeX, HTML, etc.) — just produce Markdown.
 - Infer the repository name from the user's request context. Only use ask_user_question about the repository if the user explicitly references a repository but the name is ambiguous.
 - NEVER perform destructive operations without explicit confirmation. Use ask_user_question to confirm.
 - Do NOT attempt to generate the final deliverable in this phase. Just gather information and plan.`
@@ -357,7 +359,11 @@ func buildRewriteInput(prompt string, resp *AgentResponse, review *ReviewResult)
 	b.WriteByte('\n')
 	writeFiles(&b, resp.Files)
 
-	reviewJSON, _ := json.MarshalIndent(review, "", "  ")
+	reviewJSON, err := json.MarshalIndent(review, "", "  ")
+	if err != nil {
+		slog.Warn("failed to marshal review for rewrite prompt", "error", err)
+		reviewJSON = []byte(review.Summary)
+	}
 	fmt.Fprintf(&b, "## Review Results\n\n%s\n\nFix the issues listed above. Use the deliver_result tool with the corrected files. Keep the same type, repo, title format.\n", reviewJSON)
 	return b.String()
 }

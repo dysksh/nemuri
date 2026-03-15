@@ -26,7 +26,7 @@ const (
 // Agent orchestrates LLM calls with a two-phase loop (gathering → generating).
 type Agent struct {
 	llm    llm.Client
-	github *github.Client
+	github github.API
 	owner  string // default GitHub owner for repo tools
 }
 
@@ -54,13 +54,13 @@ type gatheringResult struct {
 }
 
 // New creates an Agent.
-func New(llmClient llm.Client, githubClient *github.Client, defaultOwner string) *Agent {
+func New(llmClient llm.Client, githubClient github.API, defaultOwner string) *Agent {
 	return &Agent{llm: llmClient, github: githubClient, owner: defaultOwner}
 }
 
 // Run executes the two-phase agent loop: gathering (read code) → generating (produce output).
 func (a *Agent) Run(ctx context.Context, prompt string) (*RunResult, error) {
-	messages := []llm.Message{{Role: "user", Content: prompt}}
+	messages := []llm.Message{{Role: llm.RoleUser, Content: prompt}}
 	return a.run(ctx, prompt, messages, make(map[string]string))
 }
 
@@ -232,7 +232,7 @@ func (a *Agent) gatheringPhase(ctx context.Context, messages []llm.Message, file
 	forceMessages := make([]llm.Message, len(trimmedMessages)+1)
 	copy(forceMessages, trimmedMessages)
 	forceMessages[len(trimmedMessages)] = llm.Message{
-		Role:    "user",
+		Role:    llm.RoleUser,
 		Content: "You have reached the maximum number of tool calls. Please provide your summary now as a text response: findings, implementation plan, and NEEDED_FILES list.",
 	}
 
@@ -260,7 +260,7 @@ func (a *Agent) generatingPhase(ctx context.Context, prompt string, gathering *g
 	}
 
 	contextMsg := buildGeneratingContext(prompt, gathering.summary, gathering.fileCache, gathering.messages)
-	messages := []llm.Message{{Role: "user", Content: contextMsg}}
+	messages := []llm.Message{{Role: llm.RoleUser, Content: contextMsg}}
 
 	opts := buildGeneratingSendOptions()
 	opts.MaxTokens = generatingMaxTokens
@@ -346,9 +346,9 @@ func extractQAPairs(messages []llm.Message) [][2]string {
 
 	for _, msg := range messages {
 		switch msg.Role {
-		case "assistant":
+		case llm.RoleAssistant:
 			extractAskToolUses(msg.Content, pendingQuestions)
-		case "user":
+		case llm.RoleUser:
 			extractToolResults(msg.Content, pendingQuestions, &pairs)
 		}
 	}
@@ -544,7 +544,7 @@ func trimConversation(messages []llm.Message, currentIteration int) []llm.Messag
 
 	for idx := 1; idx < len(trimmed) && idx < cutoffIndex; idx++ {
 		msg := trimmed[idx]
-		if msg.Role != "user" {
+		if msg.Role != llm.RoleUser {
 			continue
 		}
 
@@ -568,7 +568,7 @@ func trimConversation(messages []llm.Message, currentIteration int) []llm.Messag
 			}
 		}
 		if changed {
-			trimmed[idx] = llm.Message{Role: "user", Content: newResults}
+			trimmed[idx] = llm.Message{Role: llm.RoleUser, Content: newResults}
 		}
 	}
 

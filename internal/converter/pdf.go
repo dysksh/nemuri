@@ -86,8 +86,30 @@ func init() {
 	htmlTpl = template.Must(template.New("doc").Parse(htmlTemplateStr))
 }
 
+const frontmatterDelimiter = "---"
+
+// stripFrontmatter removes YAML frontmatter (--- delimited block at the start)
+// from Markdown source. If no frontmatter is found, src is returned unchanged.
+func stripFrontmatter(src []byte) []byte {
+	s := string(src)
+	if !strings.HasPrefix(s, frontmatterDelimiter) {
+		return src
+	}
+	// Find the closing delimiter after the opening one
+	closing := "\n" + frontmatterDelimiter
+	end := strings.Index(s[len(frontmatterDelimiter):], closing)
+	if end < 0 {
+		return src
+	}
+	// Skip past the opening delimiter, content, and closing delimiter
+	rest := s[len(frontmatterDelimiter)+end+len(closing):]
+	rest = strings.TrimLeft(rest, "\r\n")
+	return []byte(rest)
+}
+
 // MarkdownToHTML converts Markdown source to a standalone HTML document.
 func MarkdownToHTML(src []byte) ([]byte, error) {
+	src = stripFrontmatter(src)
 	var body bytes.Buffer
 	if err := md.Convert(src, &body); err != nil {
 		return nil, fmt.Errorf("goldmark convert: %w", err)
