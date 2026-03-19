@@ -90,7 +90,7 @@
 - Cost: pay only for active execution time
 - No memory leak accumulation
 - Natural scaling via SQS queue depth
-- Simple failure recovery (task crash → SQS redelivers)
+- SQS provides decoupling and retry for ECS RunTask API failures (ECS task-level failures are not retried via SQS; see "SQS Message Lifecycle" section)
 
 ### State Management: Self-built (No Framework)
 
@@ -129,7 +129,7 @@
 3. User types `/agent <answer>` in the thread
 4. Ingress Lambda queries GSI `thread_id-index` → finds waiting job
 5. Saves `user_response` to DynamoDB, enqueues resume message to SQS
-6. New ECS task acquires lock, loads context from S3, appends user answer as tool_result, resumes agent loop
+6. Runner Lambda starts new ECS task; ECS acquires lock, loads context from S3, appends user answer as tool_result, resumes agent loop
 
 **Conversation context persistence**: Full LLM message history serialized as JSON in S3 (`artifacts/{job_id}/conversation_context.json`). Includes pending tool_use ID for constructing the tool_result on resume.
 
@@ -172,7 +172,7 @@
 **Rationale**:
 - `main.go` had grown to ~700 lines with mixed concerns (ECS lifecycle + job execution + Discord/GitHub/S3 delivery)
 - The executor package handles: job execution orchestration, code/file/text delivery, conversation resume, Discord thread/notification management
-- `main.go` is now focused on ECS lifecycle (env parsing, heartbeat, SQS management, state transitions)
+- `main.go` is now focused on ECS lifecycle (env parsing, heartbeat, state transitions)
 - Enables testability: `github.API` interface allows mocking in executor tests
 
 ### PDF Frontmatter Handling
@@ -187,12 +187,16 @@
 
 ## Concurrency & Reliability Patterns
 
-### SQS Visibility Timeout
+### SQS Message Lifecycle
 
-- Set initial timeout to 5–10 minutes (short)
-- ECS extends visibility every 3 minutes via `ChangeMessageVisibility`
-- This handles variable-length jobs without fixed timeout problems
-- `DeleteMessage` called only after successful completion
+- SQS sits between Ingress Lambda and Runner Lambda as a decoupling layer
+- Runner Lambda is triggered via SQS event source mapping (batch_size=1)
+- When Runner Lambda succeeds (RunTask accepted), the event source mapping **automatically deletes** the SQS message
+- This means ECS tasks do not interact with SQS — message deletion and visibility management are handled entirely by the Lambda service
+- SQS retry (via visibility timeout + redelivery) only covers Runner Lambda failures (e.g., RunTask API errors, ECS capacity issues)
+- ECS task failures (job errors, AcquireLock failures, panics) are **not retried via SQS** — the message is already deleted by the time the ECS task runs
+- DLQ receives messages after maxReceiveCount (3) Runner Lambda failures
+- SQS also serves as a buffer between Ingress Lambda and ECS, ensuring Ingress Lambda can return Discord's deferred ACK within 3 seconds (SQS SendMessage ~20-50ms vs ECS RunTask ~500ms-2s)
 
 ### Idempotency
 
@@ -247,7 +251,7 @@ ECS Task (public subnet, SG: outbound 443 only)
 - Security group outbound rules allow only TCP port 443 (HTTPS)
 - No VPC Interface Endpoints needed (direct internet access via IGW)
 - No Squid proxy, no NAT Gateway
-- AWS services (S3, DynamoDB, SQS, Secrets Manager, ECR, CloudWatch Logs) all accessible over HTTPS (port 443)
+- AWS services (S3, DynamoDB, Secrets Manager, ECR, CloudWatch Logs) all accessible over HTTPS (port 443)
 
 **Trade-offs accepted**:
 - HTTPS to arbitrary domains is possible (the LLM could theoretically be prompt-injected to call an attacker-controlled HTTPS endpoint via tool use)

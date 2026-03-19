@@ -9,12 +9,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
-	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/google/uuid"
 
 	"github.com/nemuri/nemuri/internal/agent"
@@ -29,7 +27,6 @@ import (
 
 const (
 	heartbeatInterval = 3 * time.Minute
-	visibilityExtend  = 10 * time.Minute // must be > heartbeatInterval
 )
 
 func main() {
@@ -39,8 +36,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	sqsReceiptHandle := os.Getenv("SQS_RECEIPT_HANDLE")
-	sqsQueueURL := os.Getenv("SQS_QUEUE_URL")
 	tableName := os.Getenv("DYNAMODB_TABLE_NAME")
 	anthropicKeyName := os.Getenv("ANTHROPIC_API_KEY_SECRET_NAME")
 	discordTokenName := os.Getenv("DISCORD_BOT_TOKEN_SECRET_NAME")
@@ -69,7 +64,6 @@ func main() {
 	}
 
 	store := state.NewStore(dynamodb.NewFromConfig(cfg), tableName)
-	sqsClient := sqs.NewFromConfig(cfg)
 	secretsClient := secrets.NewClient(secretsmanager.NewFromConfig(cfg))
 
 	// Fetch secrets
@@ -120,7 +114,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 3. Start heartbeat and SQS visibility extension goroutines
+	// 3. Start heartbeat goroutine
 	var wg sync.WaitGroup
 	heartbeatCtx, heartbeatCancel := context.WithCancel(ctx)
 	defer heartbeatCancel()
@@ -130,14 +124,6 @@ func main() {
 		defer wg.Done()
 		runHeartbeat(heartbeatCtx, store, jobID, workerID)
 	}()
-
-	if sqsReceiptHandle != "" && sqsQueueURL != "" {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			runVisibilityExtender(heartbeatCtx, sqsClient, sqsQueueURL, sqsReceiptHandle)
-		}()
-	}
 
 	// 4. Execute job logic
 	exec := &executor.Executor{
@@ -184,7 +170,6 @@ func main() {
 			_ = store.MarkFailed(ctx, jobID, workerID, err.Error(), job.Version, job.State)
 			os.Exit(1)
 		}
-		deleteSQSMessage(ctx, sqsClient, sqsQueueURL, sqsReceiptHandle, jobID)
 		slog.Info("agent-engine paused for user input", "job_id", jobID)
 		return
 	}
@@ -199,7 +184,6 @@ func main() {
 			slog.Error("failed to mark waiting approval", "error", err, "job_id", jobID)
 			os.Exit(1)
 		}
-		deleteSQSMessage(ctx, sqsClient, sqsQueueURL, sqsReceiptHandle, jobID)
 		slog.Info("agent-engine waiting for PR approval", "job_id", jobID)
 		return
 	}
@@ -209,20 +193,7 @@ func main() {
 		slog.Error("failed to mark job as done", "error", err, "job_id", jobID)
 		os.Exit(1)
 	}
-	deleteSQSMessage(ctx, sqsClient, sqsQueueURL, sqsReceiptHandle, jobID)
 	slog.Info("agent-engine finished successfully", "job_id", jobID)
-}
-
-func deleteSQSMessage(ctx context.Context, sqsClient *sqs.Client, queueURL, receiptHandle, jobID string) {
-	if receiptHandle == "" || queueURL == "" {
-		return
-	}
-	if _, err := sqsClient.DeleteMessage(ctx, &sqs.DeleteMessageInput{
-		QueueUrl:      aws.String(queueURL),
-		ReceiptHandle: aws.String(receiptHandle),
-	}); err != nil {
-		slog.Error("failed to delete SQS message", "error", err, "job_id", jobID)
-	}
 }
 
 func runHeartbeat(ctx context.Context, store *state.Store, jobID, workerID string) {
@@ -239,29 +210,6 @@ func runHeartbeat(ctx context.Context, store *state.Store, jobID, workerID strin
 				return
 			}
 			slog.Debug("heartbeat sent", "job_id", jobID)
-		}
-	}
-}
-
-func runVisibilityExtender(ctx context.Context, sqsClient *sqs.Client, queueURL, receiptHandle string) {
-	ticker := time.NewTicker(heartbeatInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			_, err := sqsClient.ChangeMessageVisibility(ctx, &sqs.ChangeMessageVisibilityInput{
-				QueueUrl:          aws.String(queueURL),
-				ReceiptHandle:     aws.String(receiptHandle),
-				VisibilityTimeout: int32(visibilityExtend.Seconds()),
-			})
-			if err != nil {
-				slog.Error("failed to extend SQS visibility", "error", err)
-				return
-			}
-			slog.Debug("SQS visibility extended")
 		}
 	}
 }

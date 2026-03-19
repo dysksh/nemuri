@@ -17,9 +17,9 @@ const (
 	maxGatheringIterations = 15
 	maxOutputTokens        = 32768
 	perCallMaxTokens       = 16384
-	generatingMaxTokens    = 16384 // independent of gathering budget; generating is a single call with fresh context
+	generatingMaxTokens    = 32768 // independent of gathering budget; generating is a single call with fresh context
 	keepRecentIterations   = 3     // number of recent iterations to keep full tool results
-	trimContentThreshold   = 500   // tool results shorter than this are always kept
+	trimContentThreshold   = 500   // tool results shorter than this (in bytes) are always kept
 	trimPreviewLines       = 20    // number of lines to keep as preview in trimmed content
 )
 

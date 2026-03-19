@@ -63,24 +63,6 @@ resource "aws_iam_role_policy" "ecs_task_dynamodb" {
   policy = data.aws_iam_policy_document.ecs_task_dynamodb.json
 }
 
-# --- SQS Access (visibility extension + delete) ---
-
-data "aws_iam_policy_document" "ecs_task_sqs" {
-  statement {
-    actions = [
-      "sqs:ChangeMessageVisibility",
-      "sqs:DeleteMessage",
-    ]
-    resources = [var.sqs_queue_arn]
-  }
-}
-
-resource "aws_iam_role_policy" "ecs_task_sqs" {
-  name   = "sqs-access"
-  role   = aws_iam_role.ecs_task.id
-  policy = data.aws_iam_policy_document.ecs_task_sqs.json
-}
-
 # --- Secrets Manager Access ---
 
 data "aws_iam_policy_document" "ecs_task_secrets" {

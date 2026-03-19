@@ -132,9 +132,6 @@ func TestProcessRecord(t *testing.T) {
 		if envMap["JOB_ID"] != "job-1" {
 			t.Errorf("JOB_ID = %q, want %q", envMap["JOB_ID"], "job-1")
 		}
-		if envMap["SQS_RECEIPT_HANDLE"] != "receipt-1" {
-			t.Errorf("SQS_RECEIPT_HANDLE = %q, want %q", envMap["SQS_RECEIPT_HANDLE"], "receipt-1")
-		}
 	})
 
 	t.Run("invalid JSON body", func(t *testing.T) {
