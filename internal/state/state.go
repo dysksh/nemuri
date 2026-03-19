@@ -19,7 +19,7 @@ var allowedTransitions = map[JobState][]JobState{
 	StateInit:             {StateRunning},
 	StateRunning:          {StateWaitingUserInput, StateWaitingApproval, StateDone, StateFailed},
 	StateWaitingUserInput: {StateRunning},
-	StateWaitingApproval:  {StateDone, StateFailed},
+	StateWaitingApproval:  {StateDone},
 }
 
 // ValidateTransition checks if transitioning from `from` to `to` is allowed.

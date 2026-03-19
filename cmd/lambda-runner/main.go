@@ -109,7 +109,6 @@ func processRecord(ctx context.Context, record events.SQSMessage) error {
 					Name: aws.String("agent-engine"),
 					Environment: []ecsTypes.KeyValuePair{
 						{Name: aws.String("JOB_ID"), Value: aws.String(msg.JobID)},
-						{Name: aws.String("SQS_RECEIPT_HANDLE"), Value: aws.String(record.ReceiptHandle)},
 					},
 				},
 			},

@@ -35,7 +35,6 @@ resource "aws_ecs_task_definition" "agent_engine" {
 
       environment = [
         { name = "DYNAMODB_TABLE_NAME", value = var.dynamodb_table_name },
-        { name = "SQS_QUEUE_URL", value = var.sqs_queue_url },
         { name = "AWS_REGION", value = var.aws_region },
         { name = "ANTHROPIC_API_KEY_SECRET_NAME", value = var.anthropic_api_key_name },
         { name = "DISCORD_BOT_TOKEN_SECRET_NAME", value = var.discord_bot_token_name },

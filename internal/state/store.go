@@ -134,7 +134,7 @@ func (s *Store) GetJob(ctx context.Context, jobID string) (*Job, error) {
 
 // AcquireLock attempts to acquire the execution lock for a job.
 // It succeeds only if:
-//   - state is INIT, FAILED, or WAITING_USER_INPUT
+//   - state is INIT or WAITING_USER_INPUT
 //   - worker_id is not set OR heartbeat_at is expired
 func (s *Store) AcquireLock(ctx context.Context, jobID, workerID string) error {
 	now := time.Now().Unix()
@@ -147,7 +147,7 @@ func (s *Store) AcquireLock(ctx context.Context, jobID, workerID string) error {
 		},
 		UpdateExpression: aws.String("SET #state = :running, worker_id = :wid, heartbeat_at = :now, updated_at = :now, version = version + :one"),
 		ConditionExpression: aws.String(
-			"(#state IN (:init, :failed, :waiting)) AND (attribute_not_exists(worker_id) OR worker_id = :empty OR heartbeat_at < :expired)",
+			"(#state IN (:init, :waiting)) AND (attribute_not_exists(worker_id) OR worker_id = :empty OR heartbeat_at < :expired)",
 		),
 		ExpressionAttributeNames: map[string]string{
 			"#state": "state",
@@ -155,7 +155,6 @@ func (s *Store) AcquireLock(ctx context.Context, jobID, workerID string) error {
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":running": &types.AttributeValueMemberS{Value: string(StateRunning)},
 			":init":    &types.AttributeValueMemberS{Value: string(StateInit)},
-			":failed":  &types.AttributeValueMemberS{Value: string(StateFailed)},
 			":waiting": &types.AttributeValueMemberS{Value: string(StateWaitingUserInput)},
 			":wid":     &types.AttributeValueMemberS{Value: workerID},
 			":empty":   &types.AttributeValueMemberS{Value: ""},

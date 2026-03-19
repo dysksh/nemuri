@@ -35,7 +35,7 @@ ECS runs Agent Engine (Go) → Claude API + GitHub + S3 + DynamoDB + Discord API
 - **State transitions** are enforced via an allowed-transitions map in code
 - **Locking** uses DynamoDB conditional writes (`worker_id` + `heartbeat_at`)
 - **Version field** incremented only on state changes, not heartbeats
-- **SQS messages** deleted only after successful job completion
+- **SQS messages** automatically deleted by event source mapping when Runner Lambda succeeds (ECS tasks do not interact with SQS)
 - **Idempotency** required at every step (SQS is at-least-once)
 - **Secrets** go in AWS Secrets Manager; non-secret config in SSM Parameter Store
 - **No always-on infrastructure** — everything is on-demand
