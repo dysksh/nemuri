@@ -63,7 +63,7 @@ func TestExtractPrompt(t *testing.T) {
 			name: "prompt option present",
 			interaction: discordInteraction{
 				Data: &discordCommandData{
-					Name: "agent",
+					Name: "nemuri",
 					Options: []discordCommandOption{
 						{Name: "prompt", Value: "hello world"},
 					},

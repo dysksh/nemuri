@@ -229,7 +229,7 @@ func handleResume(ctx context.Context, interaction discordInteraction, existingJ
 	if strings.TrimSpace(userResponse) == "" {
 		return respondJSON(http.StatusOK, discordResponse{
 			Type: ResponseTypeChannelMessageWithSource,
-			Data: &discordResponseData{Content: "回答が空です。`/agent <回答>` の形式で入力してください。"},
+			Data: &discordResponseData{Content: "回答が空です。`/nemuri <回答>` の形式で入力してください。"},
 		})
 	}
 

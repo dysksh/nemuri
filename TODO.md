@@ -7,7 +7,7 @@
 - [x] Create Discord application in Developer Portal
 - [x] Add bot to Discord application
 - [x] Obtain Discord public key
-- [x] Register `/agent` slash command via Discord API
+- [x] Register `/nemuri` slash command via Discord API
 
 ## Phase 1: Discord → Lambda (Ingress)
 
@@ -17,7 +17,7 @@
 - [x] Implement Lambda handler: PING → PONG
 - [x] Implement Lambda handler: slash command → deferred ACK (type=5)
 - [x] Set Interaction Endpoint URL in Discord Developer Portal
-- [x] Test: `/agent hello` → "Bot is thinking..." in Discord
+- [x] Test: `/nemuri hello` → "Bot is thinking..." in Discord
 
 ## Phase 2: SQS Integration
 
@@ -53,7 +53,7 @@
 - [x] Implement simple flow: prompt → Claude → text result
 - [x] Implement Discord follow-up message (POST via interaction token)
 - [x] Write Terraform module: `s3` (artifacts + outputs buckets)
-- [x] Test: `/agent <question>` → Claude answers → response in Discord
+- [x] Test: `/nemuri <question>` → Claude answers → response in Discord
 
 ## Phase 6: GitHub & S3 Deliverables
 
@@ -62,7 +62,7 @@
 - [x] Implement Tool Executor: create PR via GitHub API
 - [x] Implement Tool Executor: S3 upload + presigned URL generation
 - [x] Post PR link / presigned URL to Discord
-- [x] Test: `/agent build a Go REST API` → PR created → link in Discord
+- [x] Test: `/nemuri build a Go REST API` → PR created → link in Discord
 
 ## Phase 7: Review Loop
 

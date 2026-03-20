@@ -116,7 +116,7 @@
 
 ### User Interaction: Thread-based Resume via Slash Commands
 
-**Decision**: User responds to agent questions via `/agent <answer>` in Discord threads (not @mention)
+**Decision**: User responds to agent questions via `/nemuri <answer>` in Discord threads (not @mention)
 
 **Rationale**:
 - `@mention` requires Discord Gateway WebSocket (always-on process, conflicts with serverless)
@@ -126,14 +126,14 @@
 **Flow**:
 1. Agent calls `ask_user_question` tool → ECS saves conversation context to S3
 2. Creates Discord thread with question, transitions to `WAITING_USER_INPUT`, exits
-3. User types `/agent <answer>` in the thread
+3. User types `/nemuri <answer>` in the thread
 4. Ingress Lambda queries GSI `thread_id-index` → finds waiting job
 5. Saves `user_response` to DynamoDB, enqueues resume message to SQS
 6. Runner Lambda starts new ECS task; ECS acquires lock, loads context from S3, appends user answer as tool_result, resumes agent loop
 
 **Conversation context persistence**: Full LLM message history serialized as JSON in S3 (`artifacts/{job_id}/conversation_context.json`). Includes pending tool_use ID for constructing the tool_result on resume.
 
-**WAITING_APPROVAL**: After PR creation, agent creates thread with approval instructions. User types `/agent approve` → Ingress Lambda transitions `WAITING_APPROVAL → DONE` directly (no ECS task needed).
+**WAITING_APPROVAL**: After PR creation, agent creates thread with approval instructions. User types `/nemuri approve` → Ingress Lambda transitions `WAITING_APPROVAL → DONE` directly (no ECS task needed).
 
 ### Review: Single Model First
 

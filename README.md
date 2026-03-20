@@ -166,14 +166,14 @@ make deploy
 | 2 | `terraform-apply` | `terraform init` + `terraform apply -auto-approve` |
 | 3 | `build-and-push-ecr` | Docker イメージのビルド・ECR プッシュ |
 | 4 | `put-secret` | `.env` から AWS Secrets Manager にシークレット登録 |
-| 5 | `register-commands` | Discord スラッシュコマンド `/agent` を登録 |
+| 5 | `register-commands` | Discord スラッシュコマンド `/nemuri` を登録 |
 | 6 | `register-endpoint` | Terraform output から Interactions URL を取得し、Discord API で自動設定 |
 
 各ステップは個別に `make <ターゲット>` でも実行可能。
 
 ### 5. 動作確認
 
-Discord サーバーで `/agent` スラッシュコマンドを実行する。
+Discord サーバーで `/nemuri` スラッシュコマンドを実行する。
 
 ### セットアップの全体像
 
@@ -182,7 +182,7 @@ Discord サーバーで `/agent` スラッシュコマンドを実行する。
 2. git clone && make up && make dev                ← コマンド（bootstrap 自動実行）
 3. .env と terraform.tfvars を作成                  ← 手動（初回のみ）
 4. make deploy                                     ← コマンド（これだけで全自動）
-5. /agent で動作確認                                ← Discord
+5. /nemuri で動作確認                                ← Discord
 ```
 
 ### ツールバージョン

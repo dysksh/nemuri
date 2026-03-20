@@ -9,8 +9,8 @@ curl -sfS -X POST \
   -H "Authorization: Bot ${DISCORD_BOT_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "agent",
-    "description": "Submit a task to the agent",
+    "name": "nemuri",
+    "description": "Submit a task to Nemuri",
     "options": [
       {
         "name": "prompt",
@@ -22,4 +22,4 @@ curl -sfS -X POST \
   }'
 
 echo ""
-echo "Slash command /agent registered successfully."
+echo "Slash command /nemuri registered successfully."
