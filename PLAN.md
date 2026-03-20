@@ -36,7 +36,7 @@ Terraform implementation order (follows dependency graph):
 - [x] AWS CLI login & credentials configured
 - [x] Terraform initialized (backend, provider)
 - [x] Discord Developer Portal: create application, add bot, get public key
-- [x] Register slash command (`/agent`) via Discord API
+- [x] Register slash command (`/nemuri`) via Discord API
 
 ### Phase 1 — Discord → Lambda (Ingress)
 

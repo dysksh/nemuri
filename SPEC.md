@@ -58,7 +58,7 @@ Agent Engine (Go binary)
 
 - Registered via Discord Developer Portal
 - Interaction Endpoint URL points to API Gateway
-- Slash command: `/agent <natural language prompt>`
+- Slash command: `/nemuri <natural language prompt>`
 - Must respond with ACK (type=5, deferred) within 3 seconds
 
 ### 2. Lambda — Ingress
@@ -249,7 +249,7 @@ s3://nemuri-storage/
 ### New Task
 
 1. User creates a new Discord thread
-2. User types `/agent <prompt>` (slash command)
+2. User types `/nemuri <prompt>` (slash command)
 3. Bot responds "thinking..." (deferred ACK)
 4. Job executes asynchronously
 5. Results delivered to the same thread

@@ -53,7 +53,7 @@ func buildPRNotificationMessage(prURL, title, description string, files []agent.
 	if reviewResult != nil {
 		message += "\n\n" + formatReviewSummary(reviewResult)
 	}
-	message += "\n\n---\nPRを確認してmergeしてください。完了したらこのスレッドで `/agent approve` と返信してください。"
+	message += "\n\n---\nPRを確認してmergeしてください。完了したらこのスレッドで `/nemuri approve` と返信してください。"
 	return message
 }
 

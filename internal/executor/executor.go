@@ -171,7 +171,7 @@ func (e *Executor) HandleQuestionOutcome(ctx context.Context, job *state.Job, wo
 	slog.Info("conversation context saved", "job_id", job.JobID)
 
 	threadName := fmt.Sprintf("Nemuri: %s", discord.Truncate(job.Prompt, 80, ""))
-	questionMsg := fmt.Sprintf("**質問があります:**\n\n%s\n\n---\nこのスレッドで `/agent <回答>` と返信してください。", outcome.Question)
+	questionMsg := fmt.Sprintf("**質問があります:**\n\n%s\n\n---\nこのスレッドで `/nemuri <回答>` と返信してください。", outcome.Question)
 
 	threadID, err := e.Discord.CreateThread(ctx, job.ChannelID, threadName, questionMsg)
 	if err != nil {
