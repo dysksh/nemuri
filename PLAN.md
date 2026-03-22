@@ -166,5 +166,5 @@ Terraform implementation order (follows dependency graph):
 - Hybrid execution mode (short session for interactive Q&A)
 - Team support (multi-tenant, per-user IAM, version-based optimistic locking)
 - Agent persona configuration (tone, coding principles, forbidden actions)
-- File tree pre-filtering: lightweight Claude API call before gathering to identify relevant files from tree only, reducing unnecessary file reads
-- Gathering limit judgment: when approaching iteration limit, explicitly ask Claude whether implementation is possible with current information (proceed to generating or trigger ask_user_question)
+- ~~File tree pre-filtering~~: implemented as soft suggestions (lightweight LLM call identifies relevant files, presented as advisory list)
+- ~~Gathering limit judgment~~: implemented as dynamic input token budget (80k tokens) instead of iteration count reduction

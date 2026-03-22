@@ -38,7 +38,7 @@
       "weight": 2,
       "check_type": "content_contains_any_file",
       "indicators": {
-        "strong": "os\\\\.Args|sys\\\\.argv|process\\\\.argv|argparse|flag\\\\.Parse|cobra|Args|args",
+        "strong": "os\\.Args|sys\\.argv|process\\.argv|argparse|flag\\.Parse|cobra|Args|args",
         "weak": "arg|file"
       },
       "criterion": "\u30b3\u30de\u30f3\u30c9\u30e9\u30a4\u30f3\u5f15\u6570\u3067\u30d5\u30a1\u30a4\u30eb\u30d1\u30b9\u3092\u53d7\u3051\u53d6\u308b"
@@ -48,7 +48,7 @@
       "weight": 3,
       "check_type": "content_contains_any_file",
       "indicators": {
-        "strong": "strings\\\\.HasPrefix.*\\\"#\\\"|startswith.*\\\"#\\\"|match.*^#+|regex.*^#+|/^#{1,6}/",
+        "strong": "strings\\.HasPrefix.*\\\"#\\\"|startswith.*\\\"#\\\"|match.*^#+|regex.*^#+|/^#{1,6}/",
         "weak": "#|heading|header"
       },
       "criterion": "Markdown\u306e\u898b\u51fa\u3057\u3092\u30d1\u30fc\u30b9\u3057\u3066\u3044\u308b"
@@ -58,7 +58,7 @@
       "weight": 3,
       "check_type": "content_contains_any_file",
       "indicators": {
-        "strong": "indent|Indent|level|Level|depth|Depth|\u251c|\u2514|\u2502|\u2500\u2500|repeat.*\\\" \\\"|strings\\\\.Repeat",
+        "strong": "indent|Indent|level|Level|depth|Depth|\u251c|\u2514|\u2502|\u2500\u2500|repeat.*\\\" \\\"|strings\\.Repeat",
         "weak": "tree|Tree|\u30c4\u30ea\u30fc"
       },
       "criterion": "\u898b\u51fa\u3057\u30ec\u30d9\u30eb\u306b\u5fdc\u3058\u305f\u30a4\u30f3\u30c7\u30f3\u30c8\u307e\u305f\u306f\u30c4\u30ea\u30fc\u8868\u793a\u304c\u3042\u308b"
@@ -68,7 +68,7 @@
       "weight": 1,
       "check_type": "content_contains_any_file",
       "indicators": {
-        "strong": "os\\\\.Open.*err|os\\\\.ReadFile.*err|open\\\\(.*\\\\).*except|fs\\\\.readFile.*catch|try.*catch",
+        "strong": "os\\.Open.*err|os\\.ReadFile.*err|open\\(.*\\).*except|fs\\.readFile.*catch|try.*catch",
         "weak": "error|Error|err"
       },
       "criterion": "\u30d5\u30a1\u30a4\u30eb\u8aad\u307f\u8fbc\u307f\u306e\u30a8\u30e9\u30fc\u30cf\u30f3\u30c9\u30ea\u30f3\u30b0\u304c\u3042\u308b"

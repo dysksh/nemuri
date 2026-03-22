@@ -31,15 +31,15 @@
       "patterns": [
         {
           "label": "agent.go",
-          "pattern": "agent\\\\.go"
+          "pattern": "agent\\.go"
         },
         {
           "label": "review.go",
-          "pattern": "review\\\\.go"
+          "pattern": "review\\.go"
         },
         {
           "label": "prompt.go",
-          "pattern": "prompt\\\\.go"
+          "pattern": "prompt\\.go"
         }
       ],
       "scoring": {
@@ -55,7 +55,7 @@
       "criterion": "具体的な関数名を引用している",
       "id": "r2",
       "indicators": {
-        "strong": "(Run|Review|Rewrite|gatheringPhase|generatingPhase|trimConversation|executeTool|ReviewLoop)\\\\b",
+        "strong": "(Run|Review|Rewrite|gatheringPhase|generatingPhase|trimConversation|executeTool|ReviewLoop)\\b",
         "weak": "関数|function|func"
       },
       "weight": 2
@@ -64,7 +64,7 @@
       "check_type": "text_heading_count",
       "criterion": "3つ以上の異なる観点から指摘している",
       "id": "r3",
-      "pattern": "^#{1,3} |^\\\\d+\\\\.|^- \\\\*\\\\*",
+      "pattern": "^#{1,3} |^\\d+\\.|^- \\*\\*",
       "scoring": {
         "0": 0,
         "1": 0.1,
@@ -80,7 +80,7 @@
       "criterion": "改善案が具体的に提示されている",
       "id": "r4",
       "indicators": {
-        "strong": "(interface|インターフェース).*(導入|分離|抽出|定義)|パッケージ.*(分割|分離)|依存性.*(注入|逆転)|DI\\\\b|Strategy|strategy",
+        "strong": "(interface|インターフェース).*(導入|分離|抽出|定義)|パッケージ.*(分割|分離)|依存性.*(注入|逆転)|DI\\b|Strategy|strategy",
         "weak": "改善|すべき|should|recommend|提案"
       },
       "weight": 3

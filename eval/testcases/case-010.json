@@ -12,7 +12,7 @@
     },
     {
       "id": "e2",
-      "name_pattern": ".*\\\\.md$",
+      "name_pattern": ".*\\.md$",
       "type": "file_present_by_pattern"
     },
     {
@@ -44,19 +44,19 @@
       "patterns": [
         {
           "label": "gin",
-          "pattern": "[Gg]in\\\\b"
+          "pattern": "[Gg]in\\b"
         },
         {
           "label": "echo",
-          "pattern": "[Ee]cho\\\\b"
+          "pattern": "[Ee]cho\\b"
         },
         {
           "label": "chi",
-          "pattern": "[Cc]hi\\\\b"
+          "pattern": "[Cc]hi\\b"
         },
         {
           "label": "fiber",
-          "pattern": "[Ff]iber\\\\b"
+          "pattern": "[Ff]iber\\b"
         },
         {
           "label": "net_http",
@@ -64,11 +64,11 @@
         },
         {
           "label": "gorilla",
-          "pattern": "[Gg]orilla|mux\\\\b"
+          "pattern": "[Gg]orilla|mux\\b"
         },
         {
           "label": "iris",
-          "pattern": "[Ii]ris\\\\b"
+          "pattern": "[Ii]ris\\b"
         }
       ],
       "scoring": {
@@ -86,7 +86,7 @@
       "criterion": "比較表またはリストで構造的に比較されている",
       "id": "r2",
       "indicators": {
-        "strong": "\\\\|.*\\\\|.*\\\\||\u003ctable|比較表|comparison",
+        "strong": "\\|.*\\|.*\\||\u003ctable|比較表|comparison",
         "weak": "比較|compare|vs"
       },
       "weight": 2

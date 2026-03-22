@@ -94,6 +94,25 @@ const (
 	rewriteMaxTokens = 16384
 )
 
+// PreFilterSystemPrompt instructs Claude to identify relevant files from the file tree.
+// Use PreFilterSystemPromptWith to inject the dynamic file count range.
+const preFilterSystemPromptTemplate = `You are a file relevance analyzer. Given a user's task and a repository file tree, identify which files are most likely relevant to the task.
+
+Respond with ONLY a JSON array of file paths, ordered by relevance (most relevant first). Include %d-%d files.
+Do not include any explanation, markdown, or other text — just the JSON array.
+
+Example response:
+["internal/agent/agent.go","internal/agent/prompt.go","internal/llm/llm.go"]`
+
+// PreFilterSystemPromptWith returns the pre-filter system prompt with a file count range
+// scaled to the repository size.
+func PreFilterSystemPromptWith(totalFiles int) string {
+	minFiles := max(3, totalFiles/10)
+	maxFiles := min(max(minFiles+1, totalFiles/3), 15)
+	minFiles = min(minFiles, maxFiles)
+	return fmt.Sprintf(preFilterSystemPromptTemplate, minFiles, maxFiles)
+}
+
 // GatheringSystemPrompt instructs Claude during the gathering (reading) phase.
 const GatheringSystemPrompt = `You are a task automation assistant called Nemuri. You are in the GATHERING phase — your job is to read and understand the codebase before generating output.
 
@@ -128,9 +147,9 @@ Call deliver_result with the appropriate type to deliver your output.
 
 Rules:
 - For code changes to an existing repository, use type "code". Set "repo" to the repository name (without the owner).
-- For creating a brand-new repository, use type "new_repo". The repo will be created under the authenticated user's account as a private repository.
-- For non-code file deliverables (documents, reports, configs), use type "file". You MUST include at least one entry in "files" with a non-empty "name" and "content". Use Markdown format (.md) for documents — the system will automatically convert Markdown files to PDF.
-- For questions, explanations, or when no deliverable is needed, use type "text".
+- For creating a brand-new project, tool, application, or library, use type "new_repo". This includes any request to create source code (Python scripts, Go programs, TypeScript packages, etc.) that does not target an existing repository. The repo will be created under the authenticated user's account as a private repository.
+- For non-code file deliverables (documents, reports, configs, Markdown files), use type "file". Do NOT use "file" for source code — use "new_repo" instead. You MUST include at least one entry in "files" with a non-empty "name" and "content". Use Markdown format (.md) for documents — the system will automatically convert Markdown files to PDF.
+- For questions, explanations, analysis, reviews, or when the user asks about code without requesting changes, use type "text". Put the full response in "content". Do NOT use "file" type for text responses like code reviews, explanations, or summaries.
 - Include ALL files that need to be created or modified in the "files" array.
 - Output complete file contents — do not use placeholders or partial files.`
 

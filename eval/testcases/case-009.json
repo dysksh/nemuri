@@ -12,12 +12,12 @@
     },
     {
       "id": "e2",
-      "name_pattern": ".*\\\\.md$",
+      "name_pattern": ".*\\.md$",
       "type": "file_present_by_pattern"
     },
     {
       "id": "e3",
-      "pattern": "nginx\\\\.conf|nginx",
+      "pattern": "nginx\\.conf|nginx",
       "type": "content_contains_any_file"
     },
     {
@@ -62,8 +62,8 @@
       "criterion": "nginx.confの設定例がコードブロックで記載されている",
       "id": "r2",
       "indicators": {
-        "strong": "```[\\\\s\\\\S]*?(server\\\\s*\\\\{|upstream|proxy_pass)[\\\\s\\\\S]*?```",
-        "weak": "nginx\\\\.conf"
+        "strong": "```[\\s\\S]*?(server\\s*\\{|upstream|proxy_pass)[\\s\\S]*?```",
+        "weak": "nginx\\.conf"
       },
       "weight": 3
     },
@@ -72,7 +72,7 @@
       "criterion": "docker-compose.ymlの完全な例がコードブロックで記載されている",
       "id": "r3",
       "indicators": {
-        "strong": "```(ya?ml)?[\\\\s\\\\S]*?(services:|version:)[\\\\s\\\\S]*?nginx[\\\\s\\\\S]*?```",
+        "strong": "```(ya?ml)?[\\s\\S]*?(services:|version:)[\\s\\S]*?nginx[\\s\\S]*?```",
         "weak": "docker-compose"
       },
       "weight": 3
@@ -92,7 +92,7 @@
       "criterion": "動作確認の方法が記載されている",
       "id": "r5",
       "indicators": {
-        "strong": "curl.*localhost|curl.*127\\\\.0\\\\.0\\\\.1|ブラウザ.*localhost|http://localhost",
+        "strong": "curl.*localhost|curl.*127\\.0\\.0\\.1|ブラウザ.*localhost|http://localhost",
         "weak": "確認|verify|test|動作"
       },
       "weight": 2

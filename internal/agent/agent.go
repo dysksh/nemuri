@@ -14,13 +14,15 @@ import (
 )
 
 const (
-	maxGatheringIterations = 15
-	maxOutputTokens        = 32768
-	perCallMaxTokens       = 16384
-	generatingMaxTokens    = 32768 // independent of gathering budget; generating is a single call with fresh context
-	keepRecentIterations   = 3     // number of recent iterations to keep full tool results
-	trimContentThreshold   = 500   // tool results shorter than this (in bytes) are always kept
-	trimPreviewLines       = 20    // number of lines to keep as preview in trimmed content
+	maxGatheringIterations  = 15
+	maxGatheringInputTokens = 80000 // stop gathering when cumulative input tokens exceed this
+	maxOutputTokens         = 32768
+	perCallMaxTokens        = 16384
+	preFilterMaxTokens      = 1024  // max output tokens for the pre-filtering call
+	generatingMaxTokens     = 32768 // independent of gathering budget; generating is a single call with fresh context
+	keepRecentIterations    = 3     // number of recent iterations to keep full tool results
+	trimContentThreshold    = 500   // tool results shorter than this (in bytes) are always kept
+	trimPreviewLines        = 20    // number of lines to keep as preview in trimmed content
 )
 
 // Agent orchestrates LLM calls with a two-phase loop (gathering → generating).
@@ -104,10 +106,14 @@ func (a *Agent) run(ctx context.Context, prompt string, messages []llm.Message, 
 // Returns either a gatheringResult (phase complete) or a RunResult with a question (paused).
 func (a *Agent) gatheringPhase(ctx context.Context, messages []llm.Message, fileCache map[string]string) (*gatheringResult, *RunResult, error) {
 	opts := a.buildGatheringSendOptions()
+	prompt := extractOriginalPrompt(messages)
+	preFiltered := false
 
 	var totalInput, totalOutput int
+	var iterationsUsed int
 
 	for i := range maxGatheringIterations {
+		iterationsUsed = i + 1
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
@@ -158,6 +164,23 @@ func (a *Agent) gatheringPhase(ctx context.Context, messages []llm.Message, file
 				pendingAsk = &llm.ToolCall{ID: tc.ID, Name: tc.Name, InputJSON: tc.InputJSON}
 				continue
 			}
+
+			// Skip duplicate file reads — return short notice instead of full content
+			if tc.Name == "read_repo_file" {
+				cacheKey := fileCacheKey(tc.InputJSON)
+				if cacheKey != "" {
+					if _, already := fileCache[cacheKey]; already {
+						slog.Info("skipping duplicate file read", "file", cacheKey)
+						toolResults = append(toolResults, llm.ToolResultBlock{
+							Type:      "tool_result",
+							ToolUseID: tc.ID,
+							Content:   fmt.Sprintf("[Already read] %s — this file has already been read and its full content is cached. It will be available in the generating phase. If earlier tool results appear truncated, that is just a display optimization; the complete file is preserved. Do NOT ask the user to provide file contents.", cacheKey),
+						})
+						continue
+					}
+				}
+			}
+
 			toolResult, toolErr := a.executeTool(ctx, tc.Name, tc.InputJSON)
 			if toolErr != nil {
 				slog.Warn("tool error", "tool", tc.Name, "error", toolErr)
@@ -169,6 +192,16 @@ func (a *Agent) gatheringPhase(ctx context.Context, messages []llm.Message, file
 				})
 			} else {
 				slog.Info("tool executed", "tool", tc.Name, "result_length", len(toolResult))
+
+				// For list_repo_files, run pre-filtering to suggest relevant files
+				if tc.Name == "list_repo_files" && !preFiltered {
+					suggested := a.preFilterFiles(ctx, prompt, toolResult)
+					if suggested != "" {
+						toolResult = toolResult + "\n\n[Suggested files to read first based on the task]\n" + suggested + "\nYou may also read other files if needed."
+					}
+					preFiltered = true
+				}
+
 				toolResults = append(toolResults, llm.ToolResultBlock{
 					Type:      "tool_result",
 					ToolUseID: tc.ID,
@@ -216,10 +249,20 @@ func (a *Agent) gatheringPhase(ctx context.Context, messages []llm.Message, file
 		}
 
 		messages = append(messages, llm.NewToolResultsMessage(toolResults))
+
+		// Check input token budget
+		if totalInput >= maxGatheringInputTokens {
+			slog.Warn("gathering input token budget exceeded, forcing summary",
+				"total_input", totalInput,
+				"limit", maxGatheringInputTokens,
+				"iterations", i+1,
+			)
+			break
+		}
 	}
 
-	// Max iterations reached: force a summary by calling with no tools
-	slog.Warn("gathering phase reached max iterations, forcing summary", "iterations", maxGatheringIterations)
+	// Max iterations or input token budget reached: force a summary by calling with no tools
+	slog.Warn("gathering phase forcing summary", "iterations_used", iterationsUsed)
 	remaining := maxOutputTokens - totalOutput
 	if remaining <= 0 {
 		return nil, nil, fmt.Errorf("output token budget exhausted after gathering (%d/%d used)", totalOutput, maxOutputTokens)
@@ -529,6 +572,60 @@ func (a *Agent) execReadRepoFile(ctx context.Context, inputJSON string) (string,
 		return "", err
 	}
 	return string(content), nil
+}
+
+// preFilterFiles calls the LLM with the file tree and prompt to identify relevant files.
+// Returns a newline-separated list of suggested file paths, or empty string on failure.
+func (a *Agent) preFilterFiles(ctx context.Context, prompt, fileTree string) string {
+	// Build a compact file list (paths only) to minimize tokens
+	var pathList []string
+	var entries []struct {
+		Path string `json:"path"`
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal([]byte(fileTree), &entries); err != nil {
+		slog.Warn("pre-filter: failed to parse file tree", "error", err)
+		return ""
+	}
+	for _, e := range entries {
+		if e.Type == "blob" {
+			pathList = append(pathList, e.Path)
+		}
+	}
+	if len(pathList) == 0 {
+		return ""
+	}
+
+	pathsJSON, _ := json.Marshal(pathList)
+	userMsg := fmt.Sprintf("Task: %s\n\nRepository files:\n%s", prompt, string(pathsJSON))
+
+	messages := []llm.Message{{Role: llm.RoleUser, Content: userMsg}}
+	opts := &llm.SendOptions{MaxTokens: preFilterMaxTokens}
+
+	resp, err := a.llm.SendMessage(ctx, PreFilterSystemPromptWith(len(pathList)), messages, opts)
+	if err != nil {
+		slog.Warn("pre-filter: LLM call failed", "error", err)
+		return ""
+	}
+
+	slog.Info("pre-filter completed",
+		"input_tokens", resp.Usage.InputTokens,
+		"output_tokens", resp.Usage.OutputTokens,
+	)
+
+	// Parse response as JSON array of paths
+	var suggested []string
+	content := strings.TrimSpace(resp.Content)
+	if err := json.Unmarshal([]byte(content), &suggested); err != nil {
+		slog.Warn("pre-filter: failed to parse response", "error", err, "content", truncate(content, 200))
+		return ""
+	}
+
+	if len(suggested) == 0 {
+		return ""
+	}
+
+	return strings.Join(suggested, "\n")
 }
 
 // trimConversation replaces large tool result content from older iterations with previews.

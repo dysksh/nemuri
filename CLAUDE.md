@@ -8,7 +8,7 @@ See [SPEC.md](SPEC.md) for detailed architecture, [PLAN.md](PLAN.md) for impleme
 
 ## Project Status
 
-Phase 8 (User Interaction) implemented. Phases 0–8 are complete. Post-MVP refactoring complete (executor extraction, interface introduction, state simplification). Next: Phase 9 (Evaluation Framework) — building a quantitative quality measurement system for agent output.
+Phases 0–9 complete. Post-MVP refactoring complete. Token optimization implemented (duplicate read prevention, dynamic input token budget, file tree pre-filtering). Evaluation framework operational with 12 golden test cases, pass_rate 1.0 baseline established.
 
 ## Tech Stack
 

@@ -12,7 +12,7 @@
     },
     {
       "id": "e2",
-      "pattern": ".*\\\\.py$",
+      "pattern": ".*\\.py$",
       "type": "file_present_by_pattern"
     },
     {
@@ -22,7 +22,7 @@
     },
     {
       "id": "e4",
-      "pattern": "argparse|click|sys\\\\.argv|typer",
+      "pattern": "argparse|click|sys\\.argv|typer",
       "type": "content_contains_any_file"
     },
     {
@@ -41,7 +41,7 @@
       "check_type": "content_count",
       "criterion": "4つの引数が定義されている",
       "id": "r1",
-      "pattern": "add_argument|add_option|sys\\\\.argv\\\\[|click\\\\.(argument|option)|typer\\\\.(Argument|Option)",
+      "pattern": "add_argument|add_option|sys\\.argv\\[|click\\.(argument|option)|typer\\.(Argument|Option)",
       "scoring": {
         "0": 0,
         "1": 0.1,
@@ -56,7 +56,7 @@
       "criterion": "CSVの読み込みにcsv標準ライブラリまたはpandasが使われている",
       "id": "r2",
       "indicators": {
-        "strong": "import csv|import pandas|from csv import|csv\\\\.reader|csv\\\\.DictReader|pd\\\\.read_csv",
+        "strong": "import csv|import pandas|from csv import|csv\\.reader|csv\\.DictReader|pd\\.read_csv",
         "weak": "csv"
       },
       "weight": 2
@@ -66,7 +66,7 @@
       "criterion": "フィルタリングロジックが実装されている",
       "id": "r3",
       "indicators": {
-        "strong": "row\\\\[.*\\\\].*==|\\\\[.*column.*\\\\].*==|df\\\\[.*==.*\\\\]|filter|query",
+        "strong": "row\\[.*\\].*==|\\[.*column.*\\].*==|df\\[.*==.*\\]|filter|query",
         "weak": "==|filter"
       },
       "weight": 3
@@ -76,7 +76,7 @@
       "criterion": "ファイルが見つからない場合のエラーハンドリングがある",
       "id": "r4",
       "indicators": {
-        "strong": "FileNotFoundError|os\\\\.path\\\\.exists|Path\\\\(.*\\\\)\\\\.exists|not found|No such file",
+        "strong": "FileNotFoundError|os\\.path\\.exists|Path\\(.*\\)\\.exists|not found|No such file",
         "weak": "try.*except|error|Error"
       },
       "weight": 2
@@ -86,7 +86,7 @@
       "criterion": "READMEに使用方法の例が含まれている",
       "id": "r5",
       "indicators": {
-        "strong": "python.*\\\\.py.*--.*|usage|Usage|使い方|例|example",
+        "strong": "python.*\\.py.*--.*|usage|Usage|使い方|例|example",
         "weak": "#"
       },
       "path": "README.md",

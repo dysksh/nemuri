@@ -17,7 +17,7 @@
     },
     {
       "id": "e3",
-      "pattern": "GET|POST|PUT|DELETE|http\\\\.Handle|gin\\\\.|echo\\\\.|chi\\\\.|mux\\\\.",
+      "pattern": "GET|POST|PUT|DELETE|http\\.Handle|gin\\.|echo\\.|chi\\.|mux\\.",
       "type": "content_contains_any_file"
     },
     {
@@ -48,7 +48,7 @@
       "patterns": [
         {
           "label": "create",
-          "pattern": "POST.*user|HandleFunc.*POST|POST.*/user|router\\\\.(POST|Post)"
+          "pattern": "POST.*user|HandleFunc.*POST|POST.*/user|router\\.(POST|Post)"
         },
         {
           "label": "get_one",
@@ -84,23 +84,23 @@
       "patterns": [
         {
           "label": "200_ok",
-          "pattern": "StatusOK|status.*200|\\\\b200\\\\b"
+          "pattern": "StatusOK|status.*200|\\b200\\b"
         },
         {
           "label": "201_created",
-          "pattern": "StatusCreated|status.*201|\\\\b201\\\\b"
+          "pattern": "StatusCreated|status.*201|\\b201\\b"
         },
         {
           "label": "204_no_content",
-          "pattern": "StatusNoContent|status.*204|\\\\b204\\\\b"
+          "pattern": "StatusNoContent|status.*204|\\b204\\b"
         },
         {
           "label": "400_bad_request",
-          "pattern": "StatusBadRequest|status.*400|\\\\b400\\\\b"
+          "pattern": "StatusBadRequest|status.*400|\\b400\\b"
         },
         {
           "label": "404_not_found",
-          "pattern": "StatusNotFound|status.*404|\\\\b404\\\\b"
+          "pattern": "StatusNotFound|status.*404|\\b404\\b"
         }
       ],
       "scoring": {
@@ -117,7 +117,7 @@
       "criterion": "JSONのエンコード/デコードが実装されている",
       "id": "r3",
       "indicators": {
-        "strong": "json\\\\.(NewDecoder|NewEncoder|Marshal|Unmarshal)|JSON\\\\.parse|JSON\\\\.stringify|json\\\\.(loads|dumps)",
+        "strong": "json\\.(NewDecoder|NewEncoder|Marshal|Unmarshal)|JSON\\.parse|JSON\\.stringify|json\\.(loads|dumps)",
         "weak": "json|JSON"
       },
       "weight": 2
@@ -127,7 +127,7 @@
       "criterion": "インメモリデータストアがmap/dictで実装されている",
       "id": "r4",
       "indicators": {
-        "strong": "map\\\\[.*\\\\].*User|sync\\\\.Map|Map\u003c.*User|dict\\\\[|= \\\\{\\\\}|= new Map",
+        "strong": "map\\[.*\\].*User|sync\\.Map|Map\u003c.*User|dict\\[|= \\{\\}|= new Map",
         "weak": "map|Map|dict|store|Store"
       },
       "weight": 2
@@ -137,7 +137,7 @@
       "criterion": "User構造体/型にIDフィールドが含まれている",
       "id": "r5",
       "indicators": {
-        "strong": "(ID|Id|id)\\\\s+(string|int|uint|uuid)|id:\\\\s*(string|number)|\\\"id\\\":",
+        "strong": "(ID|Id|id)\\s+(string|int|uint|uuid)|id:\\s*(string|number)|\\\"id\\\":",
         "weak": "ID|Id|id"
       },
       "weight": 2
@@ -147,7 +147,7 @@
       "criterion": "サーバーのポート番号が設定可能またはデフォルト値がある",
       "id": "r6",
       "indicators": {
-        "strong": ":8080|:3000|:8000|PORT|os\\\\.Getenv.*PORT|process\\\\.env\\\\.PORT",
+        "strong": ":8080|:3000|:8000|PORT|os\\.Getenv.*PORT|process\\.env\\.PORT",
         "weak": "Listen|listen|Serve|serve"
       },
       "weight": 1
