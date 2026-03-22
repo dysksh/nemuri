@@ -285,3 +285,51 @@ s3://nemuri-storage/
 - S3 artifacts: 30-day lifecycle policy
 - LLM costs: mix strong models (builder/security review) with lightweight models (style review)
 - Estimated monthly cost (personal use): ~10,000–20,000 JPY (AWS ~1,000–3,000 + LLM ~5,000–15,000)
+
+## Evaluation Framework
+
+Quantitative measurement of agent output quality. Enables data-driven validation of changes (prompt improvements, review logic changes, model swaps).
+
+### Architecture
+
+```
+eval CLI (local)
+  → Load test case (prompt + expectations + rubric)
+  → Build GitHub API mock (from S3-stored repo snapshot)
+  → Agent.RunWithReview() with real Claude API
+  → Evaluate: expectations (pass/fail) + rubric (quality_score)
+  → Record results (JSON with raw_response)
+```
+
+Not end-to-end AWS testing — only the Agent Engine is exercised. See KNOWLEDGE.md for rationale.
+
+### Test Cases
+
+12 golden test cases covering 4 task types × 3 ambiguity levels:
+
+| Task Type | Low Ambiguity | Medium Ambiguity | High Ambiguity |
+|---|---|---|---|
+| code (existing repo) | case-001 | case-002 | case-003 |
+| new_repo | case-004, 005 | case-006, 007 | case-008 |
+| file (document) | case-009 | case-010 | — |
+| text | case-011 | case-012 | — |
+
+Test cases are immutable once created. Each has:
+- **prompt**: The user's natural-language instruction (frozen)
+- **fixture**: Reference to an S3-stored repo snapshot (for code/text cases that read repos)
+- **question_handling**: Fixed answer for ask_user_question (all cases have a default; high-ambiguity cases have specific answers)
+- **expectations**: Deterministic structural checks (response_type, file_present, content_contains, syntax_valid, etc.)
+- **rubric**: Graduated quality criteria with strong/weak indicators and weights
+
+### Metrics
+
+| Metric | Purpose | Expected Range |
+|---|---|---|
+| `pass_rate` | Regression detection (all expectations pass per trial) | Near 1.0 |
+| `quality_score` | Quality measurement (weighted rubric, strong=1.0/weak=0.5/none=0.0) | 0.5–0.8 baseline |
+| `input_tokens` / `output_tokens` | Cost tracking | Varies |
+| `duration_ms` | Latency tracking | Varies |
+
+### Execution
+
+Each test case is run N trials (default: 5). Results are aggregated with mean, min, max, and median. The `compare` subcommand diffs two run results to identify improvements and regressions.

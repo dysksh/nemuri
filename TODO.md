@@ -93,6 +93,23 @@
 - [x] Add Markdown output format instruction to Gathering phase prompt
 - [x] Add tests: Discord client, GitHub client, executor, converter
 
+## Phase 9: Evaluation Framework
+
+- [x] Implement eval CLI framework (`eval/cmd/eval/main.go`: run, compare, recheck subcommands)
+- [x] Implement GitHub API mock from fixture directory (`eval/fixture/github_mock.go`)
+- [x] Implement test runner: load test cases → build mock → call Agent.RunWithReview → collect results (`eval/runner/`)
+- [x] Implement question handling: auto-respond with fixed answers, respect max_questions (`eval/runner/`)
+- [x] Implement expectation checker: response_type, file_present, content_contains, syntax_valid, etc. (`eval/checker/`)
+- [x] Implement rubric scorer: strong/weak/none matching, weighted quality_score calculation (`eval/checker/`)
+- [x] Implement result recorder: JSON write/read, per-case summary stats (mean/min/max/median) (`eval/recorder/`)
+- [x] Define type definitions: TestCase, Expectation, Rubric, TrialResult, RunRecord (`eval/types/`)
+- [x] Create initial repo snapshot (nemuri-v1 from current commit)
+- [x] Create 12 golden test cases (case-001..012)
+- [x] Implement `compare` subcommand: diff two run results, flag regressions
+- [x] Implement `recheck` subcommand: re-evaluate past raw_responses with current expectations/rubrics
+- [x] Upload snapshot to S3 (`make eval-sync-up`)
+- [x] Run baseline evaluation and record results
+
 ## Future (Post-MVP)
 
 - [ ] Multi-model review (security reviewer + style reviewer)
@@ -103,3 +120,5 @@
 - [ ] Agent persona configuration (YAML: tone, principles, forbidden actions)
 - [ ] Team support (multi-tenant isolation, per-user permissions)
 - [ ] Monitoring Lambda (detect stale heartbeats → mark jobs FAILED)
+- [ ] File tree pre-filtering (lightweight API call before gathering to identify relevant files)
+- [ ] Gathering limit judgment (explicit check before hitting max iterations)

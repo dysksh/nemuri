@@ -1,0 +1,93 @@
+{
+  "id": "case-003",
+  "version": 1,
+  "created_at": "2026-03-21",
+  "prompt": "nemuri リポジトリの internal/converter パッケージをリファクタリングしてください。",
+  "category": {
+    "task_type": "code",
+    "ambiguity": "high"
+  },
+  "fixture": {
+    "type": "repo_snapshot",
+    "repo": "nemuri",
+    "snapshot": "nemuri-v1"
+  },
+  "question_handling": {
+    "answer": "HTML変換とPDF変換の責務を分離して、テストしやすい構造にしてください。既存のインターフェースとの互換性は維持してください。",
+    "max_questions": 2
+  },
+  "expectations": [
+    {
+      "id": "e1",
+      "type": "response_type",
+      "expected": "code"
+    },
+    {
+      "id": "e2",
+      "type": "file_count_min",
+      "min": 1
+    },
+    {
+      "id": "e3",
+      "type": "content_contains_any_file",
+      "pattern": "func "
+    },
+    {
+      "id": "e4",
+      "type": "syntax_valid_all",
+      "language": "go"
+    }
+  ],
+  "rubric": [
+    {
+      "id": "r1",
+      "weight": 3,
+      "check_type": "content_contains_any_file",
+      "criterion": "HTML変換とPDF変換が別ファイルまたは別関数に分離されている",
+      "indicators": {
+        "strong": "func.*ToHTML|func.*HTML.*\\(",
+        "weak": "HTML|html"
+      }
+    },
+    {
+      "id": "r2",
+      "weight": 3,
+      "check_type": "content_contains_any_file",
+      "criterion": "インターフェースが導入されている",
+      "indicators": {
+        "strong": "type (Converter|PDFConverter|HTMLConverter|Renderer) interface",
+        "weak": "interface \\{"
+      }
+    },
+    {
+      "id": "r3",
+      "weight": 3,
+      "check_type": "content_contains_any_file",
+      "criterion": "公開APIが維持されている",
+      "indicators": {
+        "strong": "func.*MarkdownToPDF|func.*MarkdownToHTML|func.*IsMarkdown",
+        "weak": "Markdown"
+      }
+    },
+    {
+      "id": "r4",
+      "weight": 2,
+      "check_type": "content_contains_any_file",
+      "criterion": "フロントマターのストリップ処理が保持されている",
+      "indicators": {
+        "strong": "stripFrontmatter|StripFrontmatter|frontmatter",
+        "weak": "---"
+      }
+    },
+    {
+      "id": "r5",
+      "weight": 2,
+      "check_type": "content_contains_any_file",
+      "criterion": "wkhtmltopdfのセキュリティフラグが保持されている",
+      "indicators": {
+        "strong": "disable-javascript.*disable-local-file-access|disable-local-file-access.*disable-javascript",
+        "weak": "disable-javascript|disable-local-file-access"
+      }
+    }
+  ]
+}

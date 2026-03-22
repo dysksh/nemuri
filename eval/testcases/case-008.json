@@ -1,0 +1,157 @@
+{
+  "category": {
+    "ambiguity": "high",
+    "task_type": "new_repo"
+  },
+  "created_at": "2026-03-21",
+  "expectations": [
+    {
+      "expected": "new_repo",
+      "id": "e1",
+      "type": "response_type"
+    },
+    {
+      "id": "e2",
+      "min": 2,
+      "type": "file_count_min"
+    },
+    {
+      "id": "e3",
+      "pattern": "GET|POST|PUT|DELETE|http\\\\.Handle|gin\\\\.|echo\\\\.|chi\\\\.|mux\\\\.",
+      "type": "content_contains_any_file"
+    },
+    {
+      "id": "e4",
+      "pattern": "user|User",
+      "type": "content_contains_any_file"
+    },
+    {
+      "id": "e5",
+      "path": "README.md",
+      "type": "file_present"
+    }
+  ],
+  "fixture": {
+    "type": "none"
+  },
+  "id": "case-008",
+  "prompt": "REST APIを作ってください。",
+  "question_handling": {
+    "answer": "ユーザー管理のREST APIをお願いします。エンドポイントはユーザーのCRUD（作成、取得、一覧、更新、削除）の5つ。データストアはインメモリで構いません。認証は不要です。",
+    "max_questions": 2
+  },
+  "rubric": [
+    {
+      "check_type": "content_count_distinct_any_file",
+      "criterion": "CRUDエンドポイントが5つ実装されている",
+      "id": "r1",
+      "patterns": [
+        {
+          "label": "create",
+          "pattern": "POST.*user|HandleFunc.*POST|POST.*/user|router\\\\.(POST|Post)"
+        },
+        {
+          "label": "get_one",
+          "pattern": "GET.*user.*id|GET.*user/:|HandleFunc.*GET.*user.*id"
+        },
+        {
+          "label": "list",
+          "pattern": "GET.*/users|HandleFunc.*GET.*/users"
+        },
+        {
+          "label": "update",
+          "pattern": "PUT.*user|PATCH.*user|HandleFunc.*(PUT|PATCH)"
+        },
+        {
+          "label": "delete",
+          "pattern": "DELETE.*user|HandleFunc.*DELETE"
+        }
+      ],
+      "scoring": {
+        "0": 0,
+        "1": 0.1,
+        "2": 0.3,
+        "3": 0.6,
+        "4": 0.8,
+        "5": 1
+      },
+      "weight": 3
+    },
+    {
+      "check_type": "content_count_distinct_any_file",
+      "criterion": "HTTPステータスコードが適切に使い分けられている",
+      "id": "r2",
+      "patterns": [
+        {
+          "label": "200_ok",
+          "pattern": "StatusOK|status.*200|\\\\b200\\\\b"
+        },
+        {
+          "label": "201_created",
+          "pattern": "StatusCreated|status.*201|\\\\b201\\\\b"
+        },
+        {
+          "label": "204_no_content",
+          "pattern": "StatusNoContent|status.*204|\\\\b204\\\\b"
+        },
+        {
+          "label": "400_bad_request",
+          "pattern": "StatusBadRequest|status.*400|\\\\b400\\\\b"
+        },
+        {
+          "label": "404_not_found",
+          "pattern": "StatusNotFound|status.*404|\\\\b404\\\\b"
+        }
+      ],
+      "scoring": {
+        "0": 0,
+        "1": 0.1,
+        "2": 0.4,
+        "3": 0.7,
+        "4+": 1
+      },
+      "weight": 2
+    },
+    {
+      "check_type": "content_contains_any_file",
+      "criterion": "JSONのエンコード/デコードが実装されている",
+      "id": "r3",
+      "indicators": {
+        "strong": "json\\\\.(NewDecoder|NewEncoder|Marshal|Unmarshal)|JSON\\\\.parse|JSON\\\\.stringify|json\\\\.(loads|dumps)",
+        "weak": "json|JSON"
+      },
+      "weight": 2
+    },
+    {
+      "check_type": "content_contains_any_file",
+      "criterion": "インメモリデータストアがmap/dictで実装されている",
+      "id": "r4",
+      "indicators": {
+        "strong": "map\\\\[.*\\\\].*User|sync\\\\.Map|Map\u003c.*User|dict\\\\[|= \\\\{\\\\}|= new Map",
+        "weak": "map|Map|dict|store|Store"
+      },
+      "weight": 2
+    },
+    {
+      "check_type": "content_contains_any_file",
+      "criterion": "User構造体/型にIDフィールドが含まれている",
+      "id": "r5",
+      "indicators": {
+        "strong": "(ID|Id|id)\\\\s+(string|int|uint|uuid)|id:\\\\s*(string|number)|\\\"id\\\":",
+        "weak": "ID|Id|id"
+      },
+      "weight": 2
+    },
+    {
+      "check_type": "content_contains_any_file",
+      "criterion": "サーバーのポート番号が設定可能またはデフォルト値がある",
+      "id": "r6",
+      "indicators": {
+        "strong": ":8080|:3000|:8000|PORT|os\\\\.Getenv.*PORT|process\\\\.env\\\\.PORT",
+        "weak": "Listen|listen|Serve|serve"
+      },
+      "weight": 1
+    }
+  ],
+  "version": 1
+}

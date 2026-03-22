@@ -1,0 +1,94 @@
+{
+  "id": "case-002",
+  "version": 1,
+  "created_at": "2026-03-21",
+  "prompt": "nemuri リポジトリの internal/executor パッケージのエラーハンドリングを改善してください。現在はエラーが発生したときにコンテキスト情報が不足していて、デバッグが困難です。",
+  "category": {
+    "task_type": "code",
+    "ambiguity": "medium"
+  },
+  "fixture": {
+    "type": "repo_snapshot",
+    "repo": "nemuri",
+    "snapshot": "nemuri-v1"
+  },
+  "expectations": [
+    {
+      "id": "e1",
+      "type": "response_type",
+      "expected": "code"
+    },
+    {
+      "id": "e2",
+      "type": "file_present",
+      "path": "internal/executor/executor.go"
+    },
+    {
+      "id": "e3",
+      "type": "content_contains",
+      "path": "internal/executor/executor.go",
+      "pattern": "fmt\\.Errorf\\(.*%w|errors\\.New|errors\\.Wrap"
+    },
+    {
+      "id": "e4",
+      "type": "syntax_valid",
+      "path": "internal/executor/executor.go",
+      "language": "go"
+    }
+  ],
+  "rubric": [
+    {
+      "id": "r1",
+      "weight": 3,
+      "check_type": "content_match",
+      "path": "internal/executor/executor.go",
+      "criterion": "エラーメッセージにjob_idが含まれるようになっている",
+      "indicators": {
+        "strong": "job\\.JobID|job_id.*err|fmt\\.Errorf.*job.*%w",
+        "weak": "JobID|job_id"
+      }
+    },
+    {
+      "id": "r2",
+      "weight": 3,
+      "check_type": "content_match",
+      "path": "internal/executor/executor.go",
+      "criterion": "エラーメッセージに操作内容が含まれている",
+      "indicators": {
+        "strong": "fmt\\.Errorf\\(\"(save|upload|create|deliver|resume|notify|post).*:.*%w",
+        "weak": "fmt\\.Errorf.*%w"
+      }
+    },
+    {
+      "id": "r3",
+      "weight": 2,
+      "check_type": "content_not_contains",
+      "path": "internal/executor/executor.go",
+      "criterion": "既存のエラーがfmt.Errorf(%w)でラップされている",
+      "indicators": {
+        "strong": "errors\\.New\\(.*failed|errors\\.New\\(.*error"
+      }
+    },
+    {
+      "id": "r4",
+      "weight": 3,
+      "check_type": "content_match",
+      "path": "internal/executor/executor.go",
+      "criterion": "Execute関数のシグネチャが変更されていない",
+      "indicators": {
+        "strong": "func \\(e \\*Executor\\) Execute\\(ctx context\\.Context, job \\*state\\.Job, isResume bool, reviewCfg agent\\.ReviewConfig\\)"
+      }
+    },
+    {
+      "id": "r5",
+      "weight": 2,
+      "check_type": "content_match",
+      "path": "internal/executor/executor.go",
+      "criterion": "構造化ログにエラーコンテキストが追加されている",
+      "indicators": {
+        "strong": "slog\\.(Error|Warn).*\"error\".*err|slog\\.(Error|Warn).*\"job_id\"",
+        "weak": "slog\\."
+      }
+    }
+  ]
+}

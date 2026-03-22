@@ -1,0 +1,97 @@
+{
+  "category": {
+    "ambiguity": "low",
+    "task_type": "new_repo"
+  },
+  "created_at": "2026-03-21",
+  "expectations": [
+    {
+      "expected": "new_repo",
+      "id": "e1",
+      "type": "response_type"
+    },
+    {
+      "id": "e2",
+      "pattern": ".*\\\\.py$",
+      "type": "file_present_by_pattern"
+    },
+    {
+      "id": "e3",
+      "pattern": "csv",
+      "type": "content_contains_any_file"
+    },
+    {
+      "id": "e4",
+      "pattern": "argparse|click|sys\\\\.argv|typer",
+      "type": "content_contains_any_file"
+    },
+    {
+      "id": "e5",
+      "path": "README.md",
+      "type": "file_present"
+    }
+  ],
+  "fixture": {
+    "type": "none"
+  },
+  "id": "case-005",
+  "prompt": "PythonでCSVファイルを読み込み、指定したカラムの値でフィルタリングして結果を新しいCSVに出力するCLIツールを作ってください。引数は入力ファイルパス、出力ファイルパス、カラム名、フィルタ値の4つです。",
+  "rubric": [
+    {
+      "check_type": "content_count",
+      "criterion": "4つの引数が定義されている",
+      "id": "r1",
+      "pattern": "add_argument|add_option|sys\\\\.argv\\\\[|click\\\\.(argument|option)|typer\\\\.(Argument|Option)",
+      "scoring": {
+        "0": 0,
+        "1": 0.1,
+        "2": 0.4,
+        "3": 0.7,
+        "4+": 1
+      },
+      "weight": 3
+    },
+    {
+      "check_type": "content_contains_any_file",
+      "criterion": "CSVの読み込みにcsv標準ライブラリまたはpandasが使われている",
+      "id": "r2",
+      "indicators": {
+        "strong": "import csv|import pandas|from csv import|csv\\\\.reader|csv\\\\.DictReader|pd\\\\.read_csv",
+        "weak": "csv"
+      },
+      "weight": 2
+    },
+    {
+      "check_type": "content_contains_any_file",
+      "criterion": "フィルタリングロジックが実装されている",
+      "id": "r3",
+      "indicators": {
+        "strong": "row\\\\[.*\\\\].*==|\\\\[.*column.*\\\\].*==|df\\\\[.*==.*\\\\]|filter|query",
+        "weak": "==|filter"
+      },
+      "weight": 3
+    },
+    {
+      "check_type": "content_contains_any_file",
+      "criterion": "ファイルが見つからない場合のエラーハンドリングがある",
+      "id": "r4",
+      "indicators": {
+        "strong": "FileNotFoundError|os\\\\.path\\\\.exists|Path\\\\(.*\\\\)\\\\.exists|not found|No such file",
+        "weak": "try.*except|error|Error"
+      },
+      "weight": 2
+    },
+    {
+      "check_type": "content_match",
+      "criterion": "READMEに使用方法の例が含まれている",
+      "id": "r5",
+      "indicators": {
+        "strong": "python.*\\\\.py.*--.*|usage|Usage|使い方|例|example",
+        "weak": "#"
+      },
+      "path": "README.md",
+      "weight": 1
+    }
+  ],
+  "version": 1
+}

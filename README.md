@@ -64,13 +64,22 @@ nemuri/
 │       ├── dynamodb/        # Jobsテーブル
 │       ├── s3/              # アーティファクト・出力バケット
 │       └── iam/             # IAMポリシー
-├── scripts/                 # ビルド・デプロイスクリプト
+├── eval/
+│   ├── cmd/eval/            # 品質評価 CLI（run, compare, recheck, sync, snapshot）
+│   ├── runner/              # テスト実行エンジン
+│   ├── checker/             # 期待値チェック・ルーブリック採点
+│   ├── recorder/            # 結果 JSON 入出力・集計
+│   ├── fixture/             # スナップショットから GitHub API モック生成
+│   ├── types/               # 型定義
+│   ├── testcases/           # テストケース定義（git 管理・変更不可）
+│   └── fixtures/snapshots/  # リポジトリスナップショット（.gitignore・S3 保存）
+├── scripts/                  # ビルド・デプロイスクリプト
 ├── Dockerfile
 ├── Makefile
-├── SPEC.md                  # 詳細仕様
-├── PLAN.md                  # 実装計画
-├── TODO.md                  # タスク一覧
-└── KNOWLEDGE.md             # 設計判断の記録
+├── SPEC.md                   # 詳細仕様
+├── PLAN.md                   # 実装計画
+├── TODO.md                   # タスク一覧
+└── KNOWLEDGE.md              # 設計判断の記録
 ```
 
 ## 前提条件
@@ -213,6 +222,13 @@ Discord サーバーで `/nemuri` スラッシュコマンドを実行する。
 | `make register-commands` | Discord スラッシュコマンドの登録 |
 | `make register-endpoint` | Discord Interactions URL の自動設定 |
 | `make bootstrap` | tfstate 用 S3 バケットの作成（初回のみ） |
+| `make eval-bootstrap` | Eval 用 S3 バケットの作成（初回のみ） |
+| `make eval-snapshot` | 現在のリポジトリからフィクスチャスナップショット作成 |
+| `make eval-sync-down` | S3 からスナップショットをダウンロード |
+| `make eval-sync-up` | スナップショットを S3 にアップロード |
+| `make eval-run` | 品質評価を実行（`.env` の `ANTHROPIC_API_KEY` を使用） |
+| `make eval-compare` | 2 つの評価結果を比較 |
+| `make eval-recheck` | 過去の結果を現在の期待値で再評価 |
 
 ## 関連ドキュメント
 
@@ -222,6 +238,36 @@ Discord サーバーで `/nemuri` スラッシュコマンドを実行する。
 | [PLAN.md](PLAN.md) | フェーズ別実装計画 |
 | [TODO.md](TODO.md) | タスク一覧・進捗管理 |
 | [KNOWLEDGE.md](KNOWLEDGE.md) | 設計判断の背景と理由 |
+
+## 品質評価フレームワーク
+
+エージェントの出力品質を定量的に測定するためのフレームワーク。プロンプト改善・レビューロジック変更・モデル変更の効果を数値で検証できる。
+
+### 初回セットアップ
+
+```bash
+make eval-bootstrap                # S3 バケット作成（初回のみ）
+make eval-snapshot                 # 現在のリポジトリからスナップショット作成
+make eval-sync-up                  # スナップショットを S3 にアップロード
+```
+
+### 評価の実行
+
+```bash
+make eval-sync-down                # S3 からスナップショットをダウンロード（他環境で実行時）
+make eval-run                      # 全テストケースを 5 回ずつ実行（.env の ANTHROPIC_API_KEY を使用）
+make eval-run EVAL_TRIALS=3        # トライアル数を変更
+make eval-run EVAL_ARGS="--case case-001"  # 特定ケースのみ実行
+```
+
+### 結果の比較・再評価
+
+```bash
+make eval-compare A=eval/runs/run-before.json B=eval/runs/run-after.json
+make eval-recheck RUN=eval/runs/run-before.json
+```
+
+詳細は [SPEC.md](SPEC.md) の「Evaluation Framework」セクションおよび [KNOWLEDGE.md](KNOWLEDGE.md) の設計判断を参照。
 
 ## ライセンス
 

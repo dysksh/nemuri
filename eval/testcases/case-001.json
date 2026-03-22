@@ -1,0 +1,112 @@
+{
+  "id": "case-001",
+  "version": 1,
+  "created_at": "2026-03-21",
+  "prompt": "nemuri リポジトリの internal/agent/review.go にある Review 関数で、LLMのレスポンスにtool_useが含まれていなかった場合にリトライせずエラーを返していますが、1回だけリトライするように変更してください。リトライしても失敗した場合は現在と同じエラーを返してください。",
+  "category": {
+    "task_type": "code",
+    "ambiguity": "low"
+  },
+  "fixture": {
+    "type": "repo_snapshot",
+    "repo": "nemuri",
+    "snapshot": "nemuri-v1"
+  },
+  "expectations": [
+    {
+      "id": "e1",
+      "type": "response_type",
+      "expected": "code"
+    },
+    {
+      "id": "e2",
+      "type": "file_present",
+      "path": "internal/agent/review.go"
+    },
+    {
+      "id": "e3",
+      "type": "content_contains",
+      "path": "internal/agent/review.go",
+      "pattern": "retry|Retry|リトライ|retries|attempt|Attempt"
+    },
+    {
+      "id": "e4",
+      "type": "content_contains",
+      "path": "internal/agent/review.go",
+      "pattern": "func.*Review\\("
+    },
+    {
+      "id": "e5",
+      "type": "syntax_valid",
+      "path": "internal/agent/review.go",
+      "language": "go"
+    }
+  ],
+  "rubric": [
+    {
+      "id": "r1",
+      "weight": 3,
+      "check_type": "content_match",
+      "path": "internal/agent/review.go",
+      "criterion": "リトライ回数が正確に1回に制限されている（ハードコードまたは定数）",
+      "indicators": {
+        "strong": "maxRetries|retryLimit|retryCount|attempts.*(<|<=).*2|range (1|\\[2\\])|for .* 0;.*< 2",
+        "weak": "retry|Retry|再試行"
+      }
+    },
+    {
+      "id": "r2",
+      "weight": 2,
+      "check_type": "content_match",
+      "path": "internal/agent/review.go",
+      "criterion": "リトライ失敗時に元のエラー情報が保持されている",
+      "indicators": {
+        "strong": "fmt\\.Errorf.*retry.*%w|errors\\.Join|lastErr|firstErr|originalErr",
+        "weak": "fmt\\.Errorf.*%w"
+      }
+    },
+    {
+      "id": "r3",
+      "weight": 1,
+      "check_type": "content_match",
+      "path": "internal/agent/review.go",
+      "criterion": "リトライ時にログ出力がある",
+      "indicators": {
+        "strong": "slog\\.(Warn|Info).*retry|slog\\.(Warn|Info).*attempt|slog\\.(Warn|Info).*リトライ",
+        "weak": "slog\\.(Warn|Info)"
+      }
+    },
+    {
+      "id": "r4",
+      "weight": 3,
+      "check_type": "content_match",
+      "path": "internal/agent/review.go",
+      "criterion": "Review関数のシグネチャが変更されていない",
+      "indicators": {
+        "strong": "func \\(a \\*Agent\\) Review\\(ctx context\\.Context, prompt string, resp \\*AgentResponse\\) \\(\\*ReviewResult, int, int, error\\)"
+      }
+    },
+    {
+      "id": "r5",
+      "weight": 2,
+      "check_type": "content_match",
+      "path": "internal/agent/review.go",
+      "criterion": "リトライ対象が適切（tool_useが含まれない場合のみリトライ）",
+      "indicators": {
+        "strong": "HasToolUse|ToolCalls|toolCalls.*len.*==.*0|!.*HasToolUse",
+        "weak": "tool"
+      }
+    },
+    {
+      "id": "r6",
+      "weight": 2,
+      "check_type": "content_match",
+      "path": "internal/agent/review.go",
+      "criterion": "リトライ時のトークン使用量が累計に正しく加算されている",
+      "indicators": {
+        "strong": "(inputTok|InputTokens).*\\+=.*(inputTok|InputTokens)|totalInput.*\\+=",
+        "weak": "Token|token"
+      }
+    }
+  ]
+}

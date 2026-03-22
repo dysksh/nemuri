@@ -1,0 +1,110 @@
+{
+  "id": "case-004",
+  "version": 1,
+  "created_at": "2026-03-21",
+  "prompt": "FizzBuzzを実装するGoのリポジトリを作ってください。1から100までの数字について、3の倍数ならFizz、5の倍数ならBuzz、15の倍数ならFizzBuzzを出力するmain関数を実装してください。",
+  "category": {
+    "task_type": "new_repo",
+    "ambiguity": "low"
+  },
+  "fixture": {
+    "type": "none"
+  },
+  "expectations": [
+    {
+      "id": "e1",
+      "type": "response_type",
+      "expected": "new_repo"
+    },
+    {
+      "id": "e2",
+      "type": "file_present",
+      "path": "main.go"
+    },
+    {
+      "id": "e3",
+      "type": "file_present",
+      "path": "go.mod"
+    },
+    {
+      "id": "e4",
+      "type": "content_contains",
+      "path": "main.go",
+      "pattern": "Fizz"
+    },
+    {
+      "id": "e5",
+      "type": "content_contains",
+      "path": "main.go",
+      "pattern": "Buzz"
+    },
+    {
+      "id": "e6",
+      "type": "content_contains",
+      "path": "main.go",
+      "pattern": "func main\\(\\)"
+    },
+    {
+      "id": "e7",
+      "type": "syntax_valid",
+      "path": "main.go",
+      "language": "go"
+    }
+  ],
+  "rubric": [
+    {
+      "id": "r1",
+      "weight": 2,
+      "check_type": "content_match",
+      "path": "main.go",
+      "criterion": "1から100までのループが実装されている",
+      "indicators": {
+        "strong": "for.*:?=.*1;.*<=?.*100|range.*100|for i := 1; i <= 100",
+        "weak": "for.*100"
+      }
+    },
+    {
+      "id": "r2",
+      "weight": 3,
+      "check_type": "content_match",
+      "path": "main.go",
+      "criterion": "15の倍数の判定が3と5の判定より先に評価される",
+      "indicators": {
+        "strong": "%(\\s*)15(\\s*)==(\\s*)0.*%(\\s*)3(\\s*)==(\\s*)0|%\\s*15\\b.*%\\s*3\\b|FizzBuzz.*Fizz[^B]",
+        "weak": "%.*15|15"
+      }
+    },
+    {
+      "id": "r3",
+      "weight": 1,
+      "check_type": "content_match",
+      "path": "go.mod",
+      "criterion": "go.modにモジュール名が定義されている",
+      "indicators": {
+        "strong": "^module\\s+\\S+",
+        "weak": "module"
+      }
+    },
+    {
+      "id": "r4",
+      "weight": 2,
+      "check_type": "content_match",
+      "path": "main.go",
+      "criterion": "出力にFizz, Buzz, FizzBuzzの3種類が含まれる",
+      "indicators": {
+        "strong": "\"FizzBuzz\"|\"Fizz\".*\"Buzz\".*\"FizzBuzz\"|FizzBuzz.*Fizz.*Buzz"
+      }
+    },
+    {
+      "id": "r5",
+      "weight": 2,
+      "check_type": "content_match",
+      "path": "main.go",
+      "criterion": "数字そのものも出力される",
+      "indicators": {
+        "strong": "fmt\\.(Print|Println|Printf).*[id]\\b|Itoa|strconv|fmt\\.Sprint|fmt\\.Printf.*%d",
+        "weak": "Print|print"
+      }
+    }
+  ]
+}

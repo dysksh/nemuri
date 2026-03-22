@@ -132,11 +132,39 @@ Terraform implementation order (follows dependency graph):
 - [x] Add Markdown output format instruction to Gathering phase prompt
 - [x] Add tests: Discord client, GitHub client, executor, converter
 
+### Phase 9 — Evaluation Framework
+
+**Goal**: Quantitatively measure agent output quality so that changes (prompt improvements, review logic, model swaps) can be validated as improvements or regressions.
+
+**Approach**: Local execution of Agent Engine with real Claude API calls and mocked GitHub API (fixture-based). Each test case runs N trials; results are evaluated with deterministic checks (expectations) and graduated scoring (rubrics).
+
+**Key design decisions**:
+- **Method B (local Agent Engine)**: All planned improvements (multi-model review, file tree pre-filtering, gathering limit judgment) are Agent Engine-internal changes, so end-to-end AWS testing is unnecessary for quality measurement.
+- **Two-layer metrics**: `pass_rate` (all-or-nothing per trial, for regression detection — expected near 1.0) and `quality_score` (weighted rubric scoring, 0.0–1.0, for measuring improvement).
+- **Immutable test cases**: Prompts and expectations cannot be changed after creation (only added). This preserves comparability with past baselines. Each test case has a `version` field as a safety valve.
+- **raw_response preservation**: Every trial saves the full AgentResponse JSON, enabling retroactive analysis with new rubric criteria without re-running.
+- **Fixture snapshots in S3**: Repository snapshots are stored in S3 (not git) to avoid repo bloat. Snapshots are versioned and shared across test cases. Managed via `eval sync` / `eval snapshot` CLI commands.
+
+- [x] Implement eval CLI framework (`eval/cmd/eval/main.go`)
+- [x] Implement GitHub API mock from fixture snapshots (`eval/fixture/`)
+- [x] Implement test runner (`eval/runner/`)
+- [x] Implement expectation checker (`eval/checker/`)
+- [x] Implement rubric scorer (`eval/checker/`)
+- [x] Implement result recorder with JSON I/O (`eval/recorder/`)
+- [x] Create initial repo snapshot (`nemuri-v1`)
+- [x] Create 12 golden test cases (`eval/testcases/case-001..012.json`)
+- [x] Implement `compare` subcommand for before/after analysis
+- [x] Implement `recheck` subcommand for retroactive rubric evaluation
+- [x] Upload snapshot to S3
+- [x] Run baseline evaluation and record results
+
 ## Future Phases (Post-MVP)
 
-- Multi-model review (different models for security vs. style)
+- Multi-model review (different models for security vs. style): use a different model for review to reduce self-evaluation bias
 - Long-term memory: user profile, project snapshots (S3-stored summaries)
 - On-demand embedding with FAISS for project context
 - Hybrid execution mode (short session for interactive Q&A)
 - Team support (multi-tenant, per-user IAM, version-based optimistic locking)
 - Agent persona configuration (tone, coding principles, forbidden actions)
+- File tree pre-filtering: lightweight Claude API call before gathering to identify relevant files from tree only, reducing unnecessary file reads
+- Gathering limit judgment: when approaching iteration limit, explicitly ask Claude whether implementation is possible with current information (proceed to generating or trigger ask_user_question)

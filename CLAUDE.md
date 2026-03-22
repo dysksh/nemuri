@@ -8,7 +8,7 @@ See [SPEC.md](SPEC.md) for detailed architecture, [PLAN.md](PLAN.md) for impleme
 
 ## Project Status
 
-Phase 8 (User Interaction) implemented. Phases 0–8 are complete. Post-MVP refactoring in progress (executor extraction, interface introduction, state simplification). Next: verification testing and future phases.
+Phase 8 (User Interaction) implemented. Phases 0–8 are complete. Post-MVP refactoring complete (executor extraction, interface introduction, state simplification). Next: Phase 9 (Evaluation Framework) — building a quantitative quality measurement system for agent output.
 
 ## Tech Stack
 
@@ -71,6 +71,15 @@ nemuri/
 │       ├── dynamodb/
 │       ├── s3/
 │       └── iam/
+├── eval/
+│   ├── cmd/eval/              # Evaluation CLI (run, compare, recheck, sync, snapshot)
+│   ├── runner/                # Test execution engine
+│   ├── checker/               # Expectation & rubric evaluation
+│   ├── recorder/              # Result JSON I/O & aggregation
+│   ├── fixture/               # GitHub API mock from snapshots
+│   ├── types/                 # Type definitions (TestCase, RunResult, etc.)
+│   ├── testcases/             # Immutable test case definitions (git-tracked)
+│   └── fixtures/snapshots/    # Repo snapshots (.gitignore, stored in S3)
 ├── Dockerfile
 ├── go.mod
 └── go.sum
@@ -85,3 +94,4 @@ nemuri/
 - Prefer structured JSON output from LLM calls
 - Infrastructure changes must go through Terraform (no manual AWS console changes)
 - **Keep documentation in sync**: When code, architecture, or conventions change, update the relevant markdown files (`CLAUDE.md`, `README.md`, `SPEC.md`, `PLAN.md`, `TODO.md`, `KNOWLEDGE.md`) as part of the same change. Do not leave documentation out of date.
+- **Evaluation framework** lives in `eval/` — it imports `internal/` but `internal/` must never import `eval/`. Test cases in `eval/testcases/` are immutable once created (prompts and expectations cannot be changed, only added). Repo fixture snapshots are stored in S3 and downloaded via `eval sync`.
