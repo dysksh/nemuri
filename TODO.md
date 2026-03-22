@@ -120,5 +120,6 @@
 - [ ] Agent persona configuration (YAML: tone, principles, forbidden actions)
 - [ ] Team support (multi-tenant isolation, per-user permissions)
 - [ ] Monitoring Lambda (detect stale heartbeats → mark jobs FAILED)
-- [ ] File tree pre-filtering (lightweight API call before gathering to identify relevant files)
-- [ ] Gathering limit judgment (explicit check before hitting max iterations)
+- [x] File tree pre-filtering (soft suggestions based on lightweight LLM call before gathering)
+- [x] Gathering limit judgment (dynamic input token budget: 80k tokens)
+- [x] Duplicate file read prevention (skip re-reading already-cached files)

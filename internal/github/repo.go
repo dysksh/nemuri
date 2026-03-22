@@ -10,9 +10,9 @@ import (
 )
 
 const (
-	repoReadyMaxRetries   = 10
-	repoReadyPollInterval = 1 * time.Second
-	gitFileMode           = "100644" // standard file mode for git blobs
+	newRepoMaxRetries   = 10
+	newRepoPollInterval = 1 * time.Second
+	gitFileMode         = "100644" // standard file mode for git blobs
 )
 
 // PRInput holds parameters for creating a pull request.
@@ -93,7 +93,7 @@ func (c *Client) DeleteRepo(ctx context.Context, owner, repo string) error {
 func (c *Client) WaitForRepoReady(ctx context.Context, owner, repo, defaultBranch string) error {
 	refURL := fmt.Sprintf("%s/repos/%s/%s/git/refs/heads/%s", c.baseURL, owner, repo, defaultBranch)
 
-	for range repoReadyMaxRetries {
+	for range newRepoMaxRetries {
 		_, status, err := c.doAPI(ctx, http.MethodGet, refURL, nil)
 		if err != nil {
 			return fmt.Errorf("wait for repo ready: %w", err)
@@ -105,7 +105,7 @@ func (c *Client) WaitForRepoReady(ctx context.Context, owner, repo, defaultBranc
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(repoReadyPollInterval):
+		case <-time.After(newRepoPollInterval):
 		}
 	}
 	return fmt.Errorf("repo %s/%s default branch not ready after retries", owner, repo)
@@ -267,18 +267,27 @@ func (c *Client) CommitFiles(ctx context.Context, owner, repo, branch, message s
 		return fmt.Errorf("unmarshal tree: %w", err)
 	}
 
-	// 5. Create a new commit
+	// 5. Create a new commit (retry on 403 for newly created repos where permissions may not have propagated yet)
 	newCommitURL := fmt.Sprintf("%s/repos/%s/%s/git/commits", c.baseURL, owner, repo)
-	body, status, err = c.doAPI(ctx, http.MethodPost, newCommitURL, map[string]any{
+	commitPayload := map[string]any{
 		"message": message,
 		"tree":    tree.SHA,
 		"parents": []string{ref.Object.SHA},
-	})
-	if err != nil {
-		return fmt.Errorf("create commit: %w", err)
 	}
-	if status != http.StatusCreated {
-		return fmt.Errorf("create commit (%d): %s", status, truncateBody(body))
+
+	for attempt := range newRepoMaxRetries {
+		body, status, err = c.doAPI(ctx, http.MethodPost, newCommitURL, commitPayload)
+		if err != nil {
+			return fmt.Errorf("create commit: %w", err)
+		}
+		if status == http.StatusForbidden && attempt < newRepoMaxRetries-1 {
+			time.Sleep(newRepoPollInterval)
+			continue
+		}
+		if status != http.StatusCreated {
+			return fmt.Errorf("create commit (%d): %s", status, truncateBody(body))
+		}
+		break
 	}
 
 	var newCommit struct {

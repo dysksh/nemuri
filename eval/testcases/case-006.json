@@ -12,7 +12,7 @@
     },
     {
       "id": "e2",
-      "pattern": ".*\\\\.ts$",
+      "pattern": ".*\\.ts$",
       "type": "file_present_by_pattern"
     },
     {
@@ -58,7 +58,7 @@
       "glob": "*.ts",
       "id": "r2",
       "indicators": {
-        "strong": ":\\\\s*(string|number|boolean).*=\u003e|\\\\(.*:\\\\s*string|\u003cT\u003e|\u003cT extends",
+        "strong": ":\\s*(string|number|boolean).*=\u003e|\\(.*:\\s*string|\u003cT\u003e|\u003cT extends",
         "weak": ": string|: number"
       },
       "weight": 2
@@ -68,7 +68,7 @@
       "criterion": "テストファイルが含まれている",
       "id": "r3",
       "indicators": {
-        "strong": ".*\\\\.(test|spec)\\\\.ts$",
+        "strong": ".*\\.(test|spec)\\.ts$",
         "weak": ".*test.*"
       },
       "weight": 2
@@ -78,7 +78,7 @@
       "criterion": "package.jsonにscriptsが定義されている",
       "id": "r4",
       "indicators": {
-        "strong": "\\\"scripts\\\".*:\\\\s*\\\\{[^}]*(\\\"build\\\"|\\\"test\\\")",
+        "strong": "\\\"scripts\\\".*:\\s*\\{[^}]*(\\\"build\\\"|\\\"test\\\")",
         "weak": "\\\"scripts\\\""
       },
       "path": "package.json",
@@ -89,7 +89,7 @@
       "criterion": "tsconfig.jsonにstrict modeが有効化されている",
       "id": "r5",
       "indicators": {
-        "strong": "\\\"strict\\\"\\\\s*:\\\\s*true",
+        "strong": "\\\"strict\\\"\\s*:\\s*true",
         "weak": "strict"
       },
       "path": "tsconfig.json",

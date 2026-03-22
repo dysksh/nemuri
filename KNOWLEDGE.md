@@ -396,6 +396,65 @@ Go module cache is intentionally separated into a dedicated volume (`claude-gomo
 - The dependency direction is enforced by convention: `eval/` → `internal/` is allowed, `internal/` → `eval/` is forbidden
 - The `eval/` directory does not affect production builds (not referenced by `cmd/` or `Dockerfile`)
 
+## Token Optimization Strategy
+
+### Three-Layer Approach
+
+**Decision**: Implement token consumption reduction in three layers: (1) duplicate file read prevention, (2) dynamic input token budget, (3) file tree pre-filtering with soft suggestions.
+
+**Rationale**:
+- Gathering phase was the largest token consumer — the agent sometimes re-read files it had already cached, and had no mechanism to stop gathering when sufficient context was collected
+- Rate limit errors were frequent during evaluation runs, indicating excessive API usage
+- A layered approach allows each optimization to be evaluated independently
+
+### Layer 1: Duplicate File Read Prevention
+
+**Decision**: Track files already read in `fileCache` during gathering; return a synthetic "[Already read]" result instead of making another API call.
+
+**Rationale**:
+- `trimConversation` truncates old file content to 20 lines to keep context within limits, which sometimes made the agent think it needed to re-read files
+- The synthetic message explicitly states the file is cached and will be available in the generating phase, preventing the agent from asking the user to provide file contents
+- Zero cost optimization — eliminates unnecessary API calls without any quality trade-off
+
+### Layer 2: Dynamic Input Token Budget
+
+**Decision**: Set an input token budget of 80,000 tokens for the gathering phase. When cumulative input tokens exceed this limit, force transition to the generating phase.
+
+**Rationale**:
+- A hard iteration count limit (e.g., reducing max iterations from 20 to 10) would fail for complex tasks that genuinely require many file reads
+- An input token budget is task-adaptive: simple tasks that read few files use fewer iterations naturally, while complex tasks can use more iterations as long as each is efficient
+- 80,000 tokens was chosen as roughly half the practical context window, leaving room for the generating phase
+- This approach directly addresses cost (tokens = cost) rather than using a proxy metric (iteration count)
+
+**Alternatives considered**:
+- Lower max iteration count: simple but not adaptive to task complexity
+- Output token budget: less effective since output tokens are small relative to input in gathering
+
+### Layer 3: File Tree Pre-Filtering (Soft Suggestions)
+
+**Decision**: Before gathering begins, make a lightweight LLM call with the file tree and task prompt to identify 5–15 relevant files. Present these as "suggested files to read first" appended to the `list_repo_files` result.
+
+**Rationale**:
+- The agent was reading many irrelevant files during gathering, wasting tokens and iterations
+- **Soft suggestion** (not strict filtering) preserves the agent's ability to read any file — the list is advisory, not a restriction
+- This avoids the risk of strict filtering accidentally excluding critical files that the pre-filter misjudged
+- The pre-filter uses a separate, cheap LLM call with minimal tokens (file tree only, no file contents)
+- Suggested files are ordered by relevance, guiding the agent to read the most important files first
+
+**Alternatives considered**:
+- Strict filtering (only allow suggested files): risks missing important files the pre-filter didn't predict
+- Embedding-based retrieval: requires vector DB infrastructure, overkill for current scale
+- No pre-filtering: agent wastes tokens reading irrelevant files
+
+### AgentResponse Type Classification
+
+**Decision**: Clarify type selection rules in the generating system prompt: `text` for questions/explanations/reviews/analysis, `new_repo` for source code creation, `file` for documents only.
+
+**Rationale**:
+- The agent was incorrectly returning `type: "file"` for code review responses (should be `text`) and Python script creation (should be `new_repo`)
+- Explicit rules with examples in the system prompt resolved classification errors
+- `file` type triggers PDF conversion, which is appropriate for reports/documents but not for source code or text responses
+
 ## Glossary
 
 | Term | Meaning |
