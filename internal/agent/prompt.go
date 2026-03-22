@@ -20,6 +20,53 @@ type AgentResponse struct {
 	Files           []OutputFile `json:"files,omitempty"`
 }
 
+// UnmarshalJSON handles cases where the LLM returns files as a string instead of an array.
+func (r *AgentResponse) UnmarshalJSON(data []byte) error {
+	type Alias AgentResponse
+	aux := &struct {
+		Files json.RawMessage `json:"files,omitempty"`
+		*Alias
+	}{
+		Alias: (*Alias)(r),
+	}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+
+	if len(aux.Files) == 0 || string(aux.Files) == "null" {
+		return nil
+	}
+
+	// Try as []OutputFile first
+	var files []OutputFile
+	if err := json.Unmarshal(aux.Files, &files); err == nil {
+		r.Files = files
+		return nil
+	}
+
+	// Fallback: string (LLM sometimes returns files as a JSON string)
+	var filesStr string
+	if err := json.Unmarshal(aux.Files, &filesStr); err == nil {
+		// Try to parse the string as JSON array
+		if err := json.Unmarshal([]byte(filesStr), &r.Files); err != nil {
+			slog.Warn("files field returned as unparseable string, ignoring",
+				"value_prefix", truncate(filesStr, 200),
+			)
+		}
+		return nil
+	}
+
+	return fmt.Errorf("files field has unexpected type: %s", string(aux.Files))
+}
+
+func truncate(s string, n int) string {
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s
+	}
+	return string(runes[:n]) + "..."
+}
+
 // OutputFile represents a file in the response.
 // For code/new_repo: Path is the file path in the repo.
 // For file: Name is the filename for S3 upload.

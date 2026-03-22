@@ -1,0 +1,112 @@
+{
+  "category": {
+    "ambiguity": "low",
+    "task_type": "file"
+  },
+  "created_at": "2026-03-21",
+  "expectations": [
+    {
+      "expected": "file",
+      "id": "e1",
+      "type": "response_type"
+    },
+    {
+      "id": "e2",
+      "name_pattern": ".*\\\\.md$",
+      "type": "file_present_by_pattern"
+    },
+    {
+      "id": "e3",
+      "pattern": "nginx\\\\.conf|nginx",
+      "type": "content_contains_any_file"
+    },
+    {
+      "id": "e4",
+      "pattern": "docker-compose|docker compose",
+      "type": "content_contains_any_file"
+    },
+    {
+      "id": "e5",
+      "pattern": "```",
+      "type": "content_contains_any_file"
+    },
+    {
+      "id": "e6",
+      "pattern": "#.*前提|#.*インストール|#.*prerequisite|#.*requirement",
+      "type": "content_contains_any_file"
+    }
+  ],
+  "fixture": {
+    "type": "none"
+  },
+  "id": "case-009",
+  "prompt": "以下の手順でDocker Composeを使ったNginxリバースプロキシの構築手順書を作成してください。\n\n1. 前提条件の確認（Docker, Docker Composeのインストール）\n2. ディレクトリ構成の作成\n3. nginx.confの作成と設定内容の説明\n4. docker-compose.ymlの作成と各設定項目の説明\n5. 起動と動作確認",
+  "rubric": [
+    {
+      "check_type": "text_heading_count",
+      "criterion": "5つの手順セクションが見出しとして構造化されている",
+      "id": "r1",
+      "pattern": "^#{1,3} ",
+      "scoring": {
+        "0": 0,
+        "1": 0.1,
+        "2": 0.3,
+        "3": 0.6,
+        "4": 0.8,
+        "5+": 1
+      },
+      "weight": 2
+    },
+    {
+      "check_type": "content_contains_any_file",
+      "criterion": "nginx.confの設定例がコードブロックで記載されている",
+      "id": "r2",
+      "indicators": {
+        "strong": "```[\\\\s\\\\S]*?(server\\\\s*\\\\{|upstream|proxy_pass)[\\\\s\\\\S]*?```",
+        "weak": "nginx\\\\.conf"
+      },
+      "weight": 3
+    },
+    {
+      "check_type": "content_contains_any_file",
+      "criterion": "docker-compose.ymlの完全な例がコードブロックで記載されている",
+      "id": "r3",
+      "indicators": {
+        "strong": "```(ya?ml)?[\\\\s\\\\S]*?(services:|version:)[\\\\s\\\\S]*?nginx[\\\\s\\\\S]*?```",
+        "weak": "docker-compose"
+      },
+      "weight": 3
+    },
+    {
+      "check_type": "content_contains_any_file",
+      "criterion": "起動コマンドが記載されている",
+      "id": "r4",
+      "indicators": {
+        "strong": "docker[- ]compose up|docker compose up",
+        "weak": "docker"
+      },
+      "weight": 2
+    },
+    {
+      "check_type": "content_contains_any_file",
+      "criterion": "動作確認の方法が記載されている",
+      "id": "r5",
+      "indicators": {
+        "strong": "curl.*localhost|curl.*127\\\\.0\\\\.0\\\\.1|ブラウザ.*localhost|http://localhost",
+        "weak": "確認|verify|test|動作"
+      },
+      "weight": 2
+    },
+    {
+      "check_type": "content_contains_any_file",
+      "criterion": "ディレクトリ構成が明示されている",
+      "id": "r6",
+      "indicators": {
+        "strong": "├|└|ディレクトリ構成|project structure|フォルダ構成",
+        "weak": "ディレクトリ|directory|フォルダ"
+      },
+      "weight": 1
+    }
+  ],
+  "version": 1
+}

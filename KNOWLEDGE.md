@@ -333,6 +333,69 @@ Go module cache is intentionally separated into a dedicated volume (`claude-gomo
 - Go toolchain (`go build` / `go test`) is available
 - Entrypoint is `sleep infinity` (no initialization script needed, unlike dev)
 
+## Evaluation Framework Design Decisions
+
+### Why Local Agent Engine Execution (Method B), Not End-to-End AWS (Method A)
+
+**Decision**: Evaluate agent output quality by running Agent Engine locally with real Claude API + mocked GitHub API, not through the full Discord→SQS→ECS pipeline.
+
+**Rationale**:
+- All planned quality improvements (prompt tuning, multi-model review, file tree pre-filtering, gathering limit judgment) are Agent Engine-internal changes
+- The Discord→SQS→ECS path is infrastructure plumbing that doesn't affect output quality
+- Method B is cheaper (API cost only), faster, and more reproducible
+- Method A would be needed only for availability/reliability testing, which is a separate concern tracked via CloudWatch
+
+### Two-Layer Metrics: pass_rate + quality_score
+
+**Decision**: Use `pass_rate` (binary, all-or-nothing per trial) for regression detection and `quality_score` (weighted rubric, 0.0–1.0) for quality measurement.
+
+**Rationale**:
+- Initial expectations (structural checks like response_type, file_present, content_contains) are intentionally lenient — the current system already passes most of them, so pass_rate ≈ 1.0
+- A pass_rate of 1.0 cannot measure improvement, only regression
+- Rubrics with strong/weak/none matching and weighted scoring provide a continuous metric (expected baseline: 0.5–0.8) with room to measure improvement
+- Both metrics are recorded per trial; pass_rate catches catastrophic failures while quality_score tracks incremental progress
+
+### Immutable Test Cases with raw_response Preservation
+
+**Decision**: Test case prompts and expectations are immutable after creation. Every trial saves the full AgentResponse JSON.
+
+**Rationale**:
+- Changing a test case invalidates all past baselines for that case — before/after comparison becomes impossible
+- The `version` field exists as a safety valve for critical corrections, with the understanding that different versions are not comparable
+- Saving raw_response enables retroactive analysis: new rubric criteria can be applied to past results without re-running (which would cost API calls and introduce temporal variation)
+- Expectations can only be added (new test cases), never modified or deleted
+
+### Fixture Snapshots in S3 (Not Git)
+
+**Decision**: Store repository snapshots for test fixtures in S3, not in git.
+
+**Rationale**:
+- A full repo snapshot (~1–5 MB) duplicated per test case would bloat git history permanently (git never forgets large blobs even if deleted later)
+- S3 provides versioned, durable storage at negligible cost
+- `snapshots.json` (the index) is git-tracked and contains S3 keys + SHA256 checksums for integrity verification
+- Snapshots are shared across test cases (e.g., case-001, 002, 003 all reference `nemuri-v1`) to avoid duplication
+- New snapshots are created infrequently (when the codebase changes significantly enough to warrant new test cases against the new state)
+
+### Question Handling in Evaluation
+
+**Decision**: All test cases have a default question answer ("あなたの判断に任せます。最善と思われる方法で進めてください。"). High-ambiguity cases have case-specific answers.
+
+**Rationale**:
+- LLM behavior is non-deterministic — even low-ambiguity prompts may trigger ask_user_question, which would halt the test without an answer
+- A generic default answer prevents test hangs without biasing the output toward a specific implementation
+- Case-specific answers for high-ambiguity prompts (e.g., case-008 "REST APIを作って") narrow the scope enough to make expectations meaningful, simulating the real user interaction pattern
+- The fixed answer is returned regardless of the question content — this is acceptable because the goal is reproducible quality measurement, not natural conversation simulation
+
+### Eval Directory Placement (In-Repo, Not Separate)
+
+**Decision**: Place the evaluation framework in `eval/` within this repository, not in a separate repository.
+
+**Rationale**:
+- The eval CLI must import `internal/agent`, `internal/llm`, and other `internal/` packages to call `Agent.RunWithReview()` directly
+- Go's `internal` package restriction prevents cross-repository imports — a separate repo would require duplicating types or adding HTTP indirection
+- The dependency direction is enforced by convention: `eval/` → `internal/` is allowed, `internal/` → `eval/` is forbidden
+- The `eval/` directory does not affect production builds (not referenced by `cmd/` or `Dockerfile`)
+
 ## Glossary
 
 | Term | Meaning |

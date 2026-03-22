@@ -1,0 +1,100 @@
+{
+  "category": {
+    "ambiguity": "medium",
+    "task_type": "new_repo"
+  },
+  "created_at": "2026-03-21",
+  "expectations": [
+    {
+      "expected": "new_repo",
+      "id": "e1",
+      "type": "response_type"
+    },
+    {
+      "id": "e2",
+      "pattern": ".*\\\\.ts$",
+      "type": "file_present_by_pattern"
+    },
+    {
+      "id": "e3",
+      "path": "package.json",
+      "type": "file_present"
+    },
+    {
+      "id": "e4",
+      "path": "tsconfig.json",
+      "type": "file_present"
+    },
+    {
+      "id": "e5",
+      "pattern": "export (function|const|class)",
+      "type": "content_contains_any_file"
+    }
+  ],
+  "fixture": {
+    "type": "none"
+  },
+  "id": "case-006",
+  "prompt": "TypeScriptで文字列操作のユーティリティライブラリを作成してください。よく使う関数をいくつか含めてください。",
+  "rubric": [
+    {
+      "check_type": "content_count",
+      "criterion": "3つ以上のユーティリティ関数がexportされている",
+      "id": "r1",
+      "pattern": "export (function|const|class)",
+      "scoring": {
+        "0": 0,
+        "1": 0.1,
+        "2": 0.4,
+        "3": 0.7,
+        "4": 0.9,
+        "5+": 1
+      },
+      "weight": 3
+    },
+    {
+      "check_type": "content_contains_any_file",
+      "criterion": "TypeScript型アノテーションが使われている",
+      "glob": "*.ts",
+      "id": "r2",
+      "indicators": {
+        "strong": ":\\\\s*(string|number|boolean).*=\u003e|\\\\(.*:\\\\s*string|\u003cT\u003e|\u003cT extends",
+        "weak": ": string|: number"
+      },
+      "weight": 2
+    },
+    {
+      "check_type": "file_present_by_pattern",
+      "criterion": "テストファイルが含まれている",
+      "id": "r3",
+      "indicators": {
+        "strong": ".*\\\\.(test|spec)\\\\.ts$",
+        "weak": ".*test.*"
+      },
+      "weight": 2
+    },
+    {
+      "check_type": "content_match",
+      "criterion": "package.jsonにscriptsが定義されている",
+      "id": "r4",
+      "indicators": {
+        "strong": "\\\"scripts\\\".*:\\\\s*\\\\{[^}]*(\\\"build\\\"|\\\"test\\\")",
+        "weak": "\\\"scripts\\\""
+      },
+      "path": "package.json",
+      "weight": 2
+    },
+    {
+      "check_type": "content_match",
+      "criterion": "tsconfig.jsonにstrict modeが有効化されている",
+      "id": "r5",
+      "indicators": {
+        "strong": "\\\"strict\\\"\\\\s*:\\\\s*true",
+        "weak": "strict"
+      },
+      "path": "tsconfig.json",
+      "weight": 1
+    }
+  ],
+  "version": 1
+}

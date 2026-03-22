@@ -1,0 +1,126 @@
+{
+  "category": {
+    "ambiguity": "medium",
+    "task_type": "file"
+  },
+  "created_at": "2026-03-21",
+  "expectations": [
+    {
+      "expected": "file",
+      "id": "e1",
+      "type": "response_type"
+    },
+    {
+      "id": "e2",
+      "name_pattern": ".*\\\\.md$",
+      "type": "file_present_by_pattern"
+    },
+    {
+      "id": "e3",
+      "pattern": "gin|Gin|echo|Echo|chi|Chi|fiber|Fiber|net/http",
+      "type": "content_contains_any_file"
+    },
+    {
+      "id": "e4",
+      "pattern": "メリット|利点|advantage|pros|長所",
+      "type": "content_contains_any_file"
+    },
+    {
+      "id": "e5",
+      "pattern": "デメリット|欠点|disadvantage|cons|短所",
+      "type": "content_contains_any_file"
+    }
+  ],
+  "fixture": {
+    "type": "none"
+  },
+  "id": "case-010",
+  "prompt": "GoのWebフレームワークを比較する調査レポートを書いてください。主要なフレームワークのメリット・デメリットと、用途に応じた推奨を含めてください。",
+  "rubric": [
+    {
+      "check_type": "content_count_distinct_any_file",
+      "criterion": "3つ以上のフレームワークが個別に言及されている",
+      "id": "r1",
+      "patterns": [
+        {
+          "label": "gin",
+          "pattern": "[Gg]in\\\\b"
+        },
+        {
+          "label": "echo",
+          "pattern": "[Ee]cho\\\\b"
+        },
+        {
+          "label": "chi",
+          "pattern": "[Cc]hi\\\\b"
+        },
+        {
+          "label": "fiber",
+          "pattern": "[Ff]iber\\\\b"
+        },
+        {
+          "label": "net_http",
+          "pattern": "net/http|standard library|標準ライブラリ"
+        },
+        {
+          "label": "gorilla",
+          "pattern": "[Gg]orilla|mux\\\\b"
+        },
+        {
+          "label": "iris",
+          "pattern": "[Ii]ris\\\\b"
+        }
+      ],
+      "scoring": {
+        "0": 0,
+        "1": 0.1,
+        "2": 0.4,
+        "3": 0.7,
+        "4": 0.9,
+        "5+": 1
+      },
+      "weight": 3
+    },
+    {
+      "check_type": "content_contains_any_file",
+      "criterion": "比較表またはリストで構造的に比較されている",
+      "id": "r2",
+      "indicators": {
+        "strong": "\\\\|.*\\\\|.*\\\\||\u003ctable|比較表|comparison",
+        "weak": "比較|compare|vs"
+      },
+      "weight": 2
+    },
+    {
+      "check_type": "content_contains_any_file",
+      "criterion": "パフォーマンスに関する言及がある",
+      "id": "r3",
+      "indicators": {
+        "strong": "パフォーマンス|performance|ベンチマーク|benchmark|速度|speed|throughput|レイテンシ|latency",
+        "weak": "速い|fast|高速"
+      },
+      "weight": 2
+    },
+    {
+      "check_type": "content_contains_any_file",
+      "criterion": "用途に応じた推奨が具体的に記載されている",
+      "id": "r4",
+      "indicators": {
+        "strong": "(小規模|大規模|マイクロサービス|API|プロトタイプ).*(推奨|おすすめ|recommend|適して)|用途.*推奨|ユースケース",
+        "weak": "推奨|おすすめ|recommend|適して"
+      },
+      "weight": 3
+    },
+    {
+      "check_type": "content_contains_any_file",
+      "criterion": "学習コストまたはコミュニティの大きさに言及している",
+      "id": "r5",
+      "indicators": {
+        "strong": "学習コスト|learning curve|コミュニティ|community|GitHub.*star|ドキュメント|documentation|エコシステム|ecosystem",
+        "weak": "学習|ドキュメント"
+      },
+      "weight": 1
+    }
+  ],
+  "version": 1
+}
