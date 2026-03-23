@@ -167,6 +167,7 @@ type RunRecord struct {
 type Environment struct {
 	Commit       string             `json:"commit"`
 	Model        string             `json:"model"`
+	ReviewModel  string             `json:"review_model,omitempty"`
 	ReviewConfig agent.ReviewConfig `json:"review_config"`
 	CustomParams map[string]string  `json:"custom_params,omitempty"`
 }

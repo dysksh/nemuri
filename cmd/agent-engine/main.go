@@ -78,7 +78,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	llmClient := llm.NewClaudeClient(anthropicKey)
+	llmClient := llm.NewClaudeClient(anthropicKey, "")
+	reviewLLMClient := llm.NewClaudeClient(anthropicKey, llm.ModelOpus)
 	discordClient := discord.NewClient(discordToken)
 
 	// Initialize GitHub client (optional — skip if secret not configured)
@@ -127,7 +128,7 @@ func main() {
 
 	// 4. Execute job logic
 	exec := &executor.Executor{
-		Agent:          agent.New(llmClient, githubClient, defaultGithubOwner),
+		Agent:          agent.New(llmClient, reviewLLMClient, githubClient, defaultGithubOwner),
 		Discord:        discordClient,
 		GitHub:         githubClient,
 		Storage:        storageClient,

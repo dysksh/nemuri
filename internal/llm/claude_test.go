@@ -17,7 +17,7 @@ func newTestServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 
 func testClaudeClient(t *testing.T, serverURL string) llm.Client {
 	t.Helper()
-	return llm.NewClaudeClientWithURL("test-key", serverURL)
+	return llm.NewClaudeClientWithURL("test-key", "", serverURL)
 }
 
 func writeJSON(t *testing.T, w http.ResponseWriter, v any) {

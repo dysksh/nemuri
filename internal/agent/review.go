@@ -79,7 +79,7 @@ func (a *Agent) Review(ctx context.Context, prompt string, resp *AgentResponse) 
 	messages := []llm.Message{{Role: llm.RoleUser, Content: reviewInput}}
 	opts := buildReviewSendOptions()
 
-	llmResp, err := a.llm.SendMessage(ctx, reviewPrompt, messages, opts)
+	llmResp, err := a.reviewLLM.SendMessage(ctx, reviewPrompt, messages, opts)
 	if err != nil {
 		return nil, 0, 0, fmt.Errorf("review LLM call: %w", err)
 	}
@@ -105,7 +105,7 @@ func (a *Agent) Rewrite(ctx context.Context, prompt string, resp *AgentResponse,
 	messages := []llm.Message{{Role: llm.RoleUser, Content: rewriteInput}}
 	opts := buildRewriteSendOptions()
 
-	llmResp, err := a.llm.SendMessage(ctx, rewritePrompt, messages, opts)
+	llmResp, err := a.reviewLLM.SendMessage(ctx, rewritePrompt, messages, opts)
 	if err != nil {
 		return nil, 0, 0, fmt.Errorf("rewrite LLM call: %w", err)
 	}

@@ -111,7 +111,7 @@ func TestAgent_Run_DeliverResult(t *testing.T) {
 		},
 	}
 
-	a := agent.New(mock, nil, "")
+	a := agent.New(mock, nil, nil, "")
 	result, err := a.Run(context.Background(), "say hello")
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -144,7 +144,7 @@ func TestAgent_Run_NoGithub_SkipsGathering(t *testing.T) {
 		},
 	}
 
-	a := agent.New(mock, nil, "")
+	a := agent.New(mock, nil, nil, "")
 	result, err := a.Run(context.Background(), "create a new repo")
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -172,7 +172,7 @@ func TestAgent_Run_GatheringReadsFiles(t *testing.T) {
 	}
 
 	// github=nil, so tool execution will fail, but the loop should continue
-	a := agent.New(mock, nil, "")
+	a := agent.New(mock, nil, nil, "")
 	result, err := a.Run(context.Background(), "add endpoint")
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -195,7 +195,7 @@ func TestAgent_Run_LLMError(t *testing.T) {
 		errors: []error{fmt.Errorf("API rate limit exceeded")},
 	}
 
-	a := agent.New(mock, nil, "")
+	a := agent.New(mock, nil, nil, "")
 	_, err := a.Run(context.Background(), "test")
 	if err == nil {
 		t.Fatal("Run() expected error")
@@ -208,7 +208,7 @@ func TestAgent_Run_ContextCancellation(t *testing.T) {
 	cancel()
 
 	mock := &mockLLMClient{}
-	a := agent.New(mock, nil, "")
+	a := agent.New(mock, nil, nil, "")
 	_, err := a.Run(ctx, "test")
 	if err == nil {
 		t.Fatal("Run() expected error on cancelled context")
@@ -227,7 +227,7 @@ func TestAgent_Run_MaxGatheringIterations(t *testing.T) {
 	responses[16] = deliverResultResponse("text", "done")
 
 	mock := &mockLLMClient{responses: responses}
-	a := agent.New(mock, nil, "")
+	a := agent.New(mock, nil, nil, "")
 	result, err := a.Run(context.Background(), "keep looping")
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -249,7 +249,7 @@ func TestAgent_Run_TokenUsageAccumulated(t *testing.T) {
 		},
 	}
 
-	a := agent.New(mock, nil, "")
+	a := agent.New(mock, nil, nil, "")
 	result, err := a.Run(context.Background(), "multi-step")
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -277,7 +277,7 @@ func TestAgent_GatheringPhase_AskQuestion(t *testing.T) {
 		},
 	}
 
-	a := agent.New(mock, nil, "")
+	a := agent.New(mock, nil, nil, "")
 	result, err := a.Run(context.Background(), "deploy something")
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -315,7 +315,7 @@ func TestAgent_Resume_FromGathering(t *testing.T) {
 		"repo:main.go": "package main\n",
 	}
 
-	a := agent.New(mock, nil, "")
+	a := agent.New(mock, nil, nil, "")
 	result, err := a.Resume(context.Background(), messages, "gathering", fileCache)
 	if err != nil {
 		t.Fatalf("Resume() error = %v", err)

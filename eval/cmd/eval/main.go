@@ -16,6 +16,7 @@ import (
 	"github.com/nemuri/nemuri/eval/runner"
 	"github.com/nemuri/nemuri/eval/types"
 	"github.com/nemuri/nemuri/internal/agent"
+	"github.com/nemuri/nemuri/internal/llm"
 )
 
 const (
@@ -70,6 +71,7 @@ func runCmd(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	trials := fs.Int("trials", defaultTrials, "number of trials per test case")
 	caseID := fs.String("case", "", "run a specific test case (default: all)")
+	reviewModel := fs.String("review-model", "", "Claude model for review/rewrite (default: claude-opus-4-6)")
 	testCaseDir := fs.String("testcase-dir", defaultTestCaseDir, "directory containing test case JSON files")
 	fixtureDir := fs.String("fixture-dir", defaultFixtureDir, "directory containing fixture snapshots")
 	runsDir := fs.String("runs-dir", defaultRunsDir, "directory to save run results")
@@ -107,12 +109,22 @@ func runCmd(args []string) error {
 	// Get git commit
 	commit := getGitCommit()
 
+	// Resolve review model (default: Opus).
+	// NOTE: NewClaudeClient defaults to Sonnet when model is empty, but review
+	// should default to Opus. We resolve explicitly here to avoid accidentally
+	// falling back to Sonnet if this block is removed.
+	resolvedReviewModel := *reviewModel
+	if resolvedReviewModel == "" {
+		resolvedReviewModel = llm.ModelOpus
+	}
+
 	// Create runner
 	r := runner.New(runner.Config{
 		Trials:       *trials,
 		ReviewConfig: agent.DefaultReviewConfig(),
 		FixtureDir:   *fixtureDir,
 		APIKey:       apiKey,
+		ReviewModel:  resolvedReviewModel,
 	})
 
 	// Run with context
@@ -135,6 +147,7 @@ func runCmd(args []string) error {
 		Environment: types.Environment{
 			Commit:       commit,
 			Model:        "claude-sonnet-4-6",
+			ReviewModel:  resolvedReviewModel,
 			ReviewConfig: agent.DefaultReviewConfig(),
 		},
 		Cases:          results,
