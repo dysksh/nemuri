@@ -68,7 +68,7 @@ func TestReviewScores_Average(t *testing.T) {
 
 func TestAgent_Review(t *testing.T) {
 	mock := &mockLLMClient{}
-	a := agent.New(mock, nil, "")
+	a := agent.New(mock, nil, nil, "")
 
 	mock.responses = []*llm.Response{
 		makeReviewResponse(
@@ -102,7 +102,7 @@ func TestAgent_Review(t *testing.T) {
 
 func TestAgent_Rewrite(t *testing.T) {
 	mock := &mockLLMClient{}
-	a := agent.New(mock, nil, "")
+	a := agent.New(mock, nil, nil, "")
 
 	rewrittenResp := agent.AgentResponse{
 		Type:  "code",
@@ -138,7 +138,7 @@ func TestAgent_Rewrite(t *testing.T) {
 
 func TestReviewLoop_PassOnFirstReview(t *testing.T) {
 	mock := &mockLLMClient{}
-	a := agent.New(mock, nil, "")
+	a := agent.New(mock, nil, nil, "")
 
 	// Agent run response
 	agentResp := agent.AgentResponse{
@@ -197,7 +197,7 @@ func TestReviewLoop_PassOnFirstReview(t *testing.T) {
 
 func TestReviewLoop_RewriteThenPass(t *testing.T) {
 	mock := &mockLLMClient{}
-	a := agent.New(mock, nil, "")
+	a := agent.New(mock, nil, nil, "")
 
 	resp := &agent.AgentResponse{
 		Type:  "code",
@@ -246,9 +246,62 @@ func TestReviewLoop_RewriteThenPass(t *testing.T) {
 	}
 }
 
+func TestReviewLoop_UsesSeparateReviewLLM(t *testing.T) {
+	agentMock := &mockLLMClient{}
+	reviewMock := &mockLLMClient{}
+	a := agent.New(agentMock, reviewMock, nil, "")
+
+	resp := &agent.AgentResponse{
+		Type:  "code",
+		Repo:  "test-repo",
+		Title: "test",
+		Files: []agent.OutputFile{{Path: "main.go", Content: "package main"}},
+	}
+
+	// Review and rewrite responses go to reviewMock, not agentMock.
+	reviewMock.responses = []*llm.Response{
+		// Review 1: low score → triggers rewrite
+		makeReviewResponse(
+			agent.ReviewScores{Correctness: 5, Security: 6, Maintainability: 6, Completeness: 4},
+			[]agent.ReviewIssue{{File: "main.go", Severity: "major", Category: "completeness", Message: "missing main"}},
+			"Incomplete",
+		),
+		// Rewrite
+		makeRewriteResponse(agent.AgentResponse{
+			Type:  "code",
+			Repo:  "test-repo",
+			Title: "test",
+			Files: []agent.OutputFile{{Path: "main.go", Content: "package main\n\nfunc main() {}"}},
+		}),
+		// Review 2: passes
+		makeReviewResponse(
+			agent.ReviewScores{Correctness: 9, Security: 8, Maintainability: 8, Completeness: 9},
+			nil,
+			"Excellent",
+		),
+	}
+
+	cfg := agent.DefaultReviewConfig()
+	result, err := a.ReviewLoop(context.Background(), "test prompt", resp, cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Passed {
+		t.Error("expected review to pass")
+	}
+	// agentMock should NOT have been called — all calls go to reviewMock
+	if agentMock.calls != 0 {
+		t.Errorf("expected 0 calls to agent LLM, got %d", agentMock.calls)
+	}
+	// reviewMock should have received all 3 calls (review + rewrite + review)
+	if reviewMock.calls != 3 {
+		t.Errorf("expected 3 calls to review LLM, got %d", reviewMock.calls)
+	}
+}
+
 func TestReviewLoop_MaxRevisions(t *testing.T) {
 	mock := &mockLLMClient{}
-	a := agent.New(mock, nil, "")
+	a := agent.New(mock, nil, nil, "")
 
 	resp := &agent.AgentResponse{
 		Type:  "code",
@@ -296,7 +349,7 @@ func TestReviewLoop_MaxRevisions(t *testing.T) {
 
 func TestReviewLoop_ScoreStall(t *testing.T) {
 	mock := &mockLLMClient{}
-	a := agent.New(mock, nil, "")
+	a := agent.New(mock, nil, nil, "")
 
 	resp := &agent.AgentResponse{
 		Type:  "code",
@@ -349,7 +402,7 @@ func TestReviewLoop_ScoreStall(t *testing.T) {
 
 func TestReviewLoop_RepeatedIssues(t *testing.T) {
 	mock := &mockLLMClient{}
-	a := agent.New(mock, nil, "")
+	a := agent.New(mock, nil, nil, "")
 
 	resp := &agent.AgentResponse{
 		Type:  "code",
@@ -398,7 +451,7 @@ func TestReviewLoop_RepeatedIssues(t *testing.T) {
 
 func TestReviewLoop_MinorIssuesOnly(t *testing.T) {
 	mock := &mockLLMClient{}
-	a := agent.New(mock, nil, "")
+	a := agent.New(mock, nil, nil, "")
 
 	resp := &agent.AgentResponse{
 		Type:  "code",
@@ -433,7 +486,7 @@ func TestReviewLoop_MinorIssuesOnly(t *testing.T) {
 
 func TestRunWithReview_SkipsTextResponse(t *testing.T) {
 	mock := &mockLLMClient{}
-	a := agent.New(mock, nil, "")
+	a := agent.New(mock, nil, nil, "")
 
 	mock.responses = []*llm.Response{
 		// Gathering: text summary
@@ -460,7 +513,7 @@ func TestRunWithReview_SkipsTextResponse(t *testing.T) {
 
 func TestRunWithReview_CodeResponse(t *testing.T) {
 	mock := &mockLLMClient{}
-	a := agent.New(mock, nil, "")
+	a := agent.New(mock, nil, nil, "")
 
 	agentResp := agent.AgentResponse{
 		Type:  "code",
@@ -508,7 +561,7 @@ func TestRunWithReview_CodeResponse(t *testing.T) {
 
 func TestRunWithReview_SkipsFileResponse(t *testing.T) {
 	mock := &mockLLMClient{}
-	a := agent.New(mock, nil, "")
+	a := agent.New(mock, nil, nil, "")
 
 	agentResp := agent.AgentResponse{
 		Type:  "file",
@@ -545,7 +598,7 @@ func TestRunWithReview_SkipsFileResponse(t *testing.T) {
 
 func TestReviewLoop_EmptyIssuesLowScore(t *testing.T) {
 	mock := &mockLLMClient{}
-	a := agent.New(mock, nil, "")
+	a := agent.New(mock, nil, nil, "")
 
 	resp := &agent.AgentResponse{
 		Type:  "code",

@@ -27,9 +27,10 @@ const (
 
 // Agent orchestrates LLM calls with a two-phase loop (gathering → generating).
 type Agent struct {
-	llm    llm.Client
-	github github.API
-	owner  string // default GitHub owner for repo tools
+	llm       llm.Client
+	reviewLLM llm.Client
+	github    github.API
+	owner     string // default GitHub owner for repo tools
 }
 
 // RunResult holds the agent response and cumulative token usage.
@@ -55,9 +56,12 @@ type gatheringResult struct {
 	iterations   int
 }
 
-// New creates an Agent.
-func New(llmClient llm.Client, githubClient github.API, defaultOwner string) *Agent {
-	return &Agent{llm: llmClient, github: githubClient, owner: defaultOwner}
+// New creates an Agent. reviewLLM is used for review/rewrite phases; if nil, llmClient is used.
+func New(llmClient llm.Client, reviewLLM llm.Client, githubClient github.API, defaultOwner string) *Agent {
+	if reviewLLM == nil {
+		reviewLLM = llmClient
+	}
+	return &Agent{llm: llmClient, reviewLLM: reviewLLM, github: githubClient, owner: defaultOwner}
 }
 
 // Run executes the two-phase agent loop: gathering (read code) → generating (produce output).

@@ -29,6 +29,9 @@ const (
 	defaultModel        = "claude-sonnet-4-6"
 	defaultMaxTokens    = 16384
 	maxResponseBytes    = 10 * 1024 * 1024 // 10 MB
+
+	// ModelOpus is the Claude Opus 4.6 model identifier.
+	ModelOpus = "claude-opus-4-6"
 )
 
 // ClaudeClient implements the Client interface using the Anthropic Messages API.
@@ -41,16 +44,23 @@ type ClaudeClient struct {
 }
 
 // NewClaudeClient creates a new Claude API client.
-func NewClaudeClient(apiKey string) Client {
-	return NewClaudeClientWithURL(apiKey, anthropicAPIURL)
+// If model is empty, the default model is used.
+func NewClaudeClient(apiKey, model string) Client {
+	if model == "" {
+		model = defaultModel
+	}
+	return NewClaudeClientWithURL(apiKey, model, anthropicAPIURL)
 }
 
 // NewClaudeClientWithURL creates a Claude API client with a custom API endpoint.
-func NewClaudeClientWithURL(apiKey, apiURL string) Client {
+func NewClaudeClientWithURL(apiKey, model, apiURL string) Client {
+	if model == "" {
+		model = defaultModel
+	}
 	return &ClaudeClient{
 		apiKey:     apiKey,
 		apiURL:     apiURL,
-		model:      defaultModel,
+		model:      model,
 		maxTokens:  defaultMaxTokens,
 		httpClient: &http.Client{Timeout: 5 * time.Minute},
 	}

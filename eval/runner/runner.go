@@ -25,6 +25,7 @@ type Config struct {
 	FixtureDir   string // base directory for fixture snapshots
 	APIKey       string
 	Model        string // Claude model to use (empty = default)
+	ReviewModel  string // Claude model for review/rewrite
 }
 
 // Runner executes test cases against the agent.
@@ -91,7 +92,7 @@ func (r *Runner) runTrial(ctx context.Context, tc types.TestCase, trialNum int) 
 	llmClient := r.buildLLMClient()
 
 	// Create agent
-	ag := agent.New(llmClient, githubClient, "eval-owner")
+	ag := agent.New(llmClient, llm.NewClaudeClient(r.config.APIKey, r.config.ReviewModel), githubClient, "eval-owner")
 
 	// Execute with timing
 	start := time.Now()
@@ -266,7 +267,7 @@ func (r *Runner) buildGitHubClient(fix types.Fixture) github.API {
 }
 
 func (r *Runner) buildLLMClient() llm.Client {
-	return llm.NewClaudeClient(r.config.APIKey)
+	return llm.NewClaudeClient(r.config.APIKey, r.config.Model)
 }
 
 // LoadTestCases loads all test case JSON files from a directory.
