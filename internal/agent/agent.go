@@ -50,14 +50,14 @@ type RunResult struct {
 
 // gatheringResult holds the output of the gathering phase.
 type gatheringResult struct {
-	summary                string            // LLM's text response (findings + plan + needed files)
-	fileCache              map[string]string // key: "repo:path" → full file content
-	messages               []llm.Message     // full gathering conversation (for extracting Q&A)
-	inputTokens            int
-	outputTokens           int
-	cacheCreationTokens    int
-	cacheReadTokens        int
-	iterations             int
+	summary             string            // LLM's text response (findings + plan + needed files)
+	fileCache           map[string]string // key: "repo:path" → full file content
+	messages            []llm.Message     // full gathering conversation (for extracting Q&A)
+	inputTokens         int
+	outputTokens        int
+	cacheCreationTokens int
+	cacheReadTokens     int
+	iterations          int
 }
 
 // New creates an Agent. reviewLLM is used for review/rewrite phases; if nil, llmClient is used.

@@ -357,7 +357,7 @@ func buildMessagesOpt(messages []Message, cache bool) []apiMessage {
 		if cache && i == len(messages)-1 {
 			result[i] = buildCachedMessage(msg)
 		} else {
-			result[i] = apiMessage{Role: msg.Role, Content: msg.Content}
+			result[i] = apiMessage(msg)
 		}
 	}
 	return result
@@ -378,13 +378,13 @@ func buildCachedMessage(msg Message) apiMessage {
 	case json.RawMessage:
 		var blocks []map[string]any
 		if err := json.Unmarshal(v, &blocks); err != nil || len(blocks) == 0 {
-			return apiMessage{Role: msg.Role, Content: msg.Content}
+			return apiMessage(msg)
 		}
 		blocks[len(blocks)-1]["cache_control"] = cc
 		return apiMessage{Role: msg.Role, Content: blocks}
 	case []ToolResultBlock:
 		if len(v) == 0 {
-			return apiMessage{Role: msg.Role, Content: msg.Content}
+			return apiMessage(msg)
 		}
 		blocks := make([]map[string]any, len(v))
 		for i, r := range v {
@@ -403,6 +403,6 @@ func buildCachedMessage(msg Message) apiMessage {
 		}
 		return apiMessage{Role: msg.Role, Content: blocks}
 	default:
-		return apiMessage{Role: msg.Role, Content: msg.Content}
+		return apiMessage(msg)
 	}
 }
