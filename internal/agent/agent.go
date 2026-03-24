@@ -35,25 +35,29 @@ type Agent struct {
 
 // RunResult holds the agent response and cumulative token usage.
 type RunResult struct {
-	Response          *AgentResponse
-	Question          string        // non-empty if agent wants to ask user a question
-	Messages          []llm.Message // conversation context (for save/resume)
-	PendingToolCallID string        // tool_use ID for the question (for resume)
-	TotalInputTokens  int
-	TotalOutputTokens int
-	Iterations        int
-	Phase             string            // "gathering" when paused during gathering (for resume)
-	FileCache         map[string]string // cached file contents (for resume from gathering)
+	Response                      *AgentResponse
+	Question                      string        // non-empty if agent wants to ask user a question
+	Messages                      []llm.Message // conversation context (for save/resume)
+	PendingToolCallID             string        // tool_use ID for the question (for resume)
+	TotalInputTokens              int
+	TotalOutputTokens             int
+	TotalCacheCreationInputTokens int
+	TotalCacheReadInputTokens     int
+	Iterations                    int
+	Phase                         string            // "gathering" when paused during gathering (for resume)
+	FileCache                     map[string]string // cached file contents (for resume from gathering)
 }
 
 // gatheringResult holds the output of the gathering phase.
 type gatheringResult struct {
-	summary      string            // LLM's text response (findings + plan + needed files)
-	fileCache    map[string]string // key: "repo:path" → full file content
-	messages     []llm.Message     // full gathering conversation (for extracting Q&A)
-	inputTokens  int
-	outputTokens int
-	iterations   int
+	summary                string            // LLM's text response (findings + plan + needed files)
+	fileCache              map[string]string // key: "repo:path" → full file content
+	messages               []llm.Message     // full gathering conversation (for extracting Q&A)
+	inputTokens            int
+	outputTokens           int
+	cacheCreationTokens    int
+	cacheReadTokens        int
+	iterations             int
 }
 
 // New creates an Agent. reviewLLM is used for review/rewrite phases; if nil, llmClient is used.
@@ -99,9 +103,11 @@ func (a *Agent) run(ctx context.Context, prompt string, messages []llm.Message, 
 		return nil, err
 	}
 
-	// Accumulate tokens from both phases
+	// Accumulate tokens from both phases (generating result already has its own tokens)
 	result.TotalInputTokens += gathering.inputTokens
 	result.TotalOutputTokens += gathering.outputTokens
+	result.TotalCacheCreationInputTokens += gathering.cacheCreationTokens
+	result.TotalCacheReadInputTokens += gathering.cacheReadTokens
 	result.Iterations += gathering.iterations
 	return result, nil
 }
@@ -113,7 +119,7 @@ func (a *Agent) gatheringPhase(ctx context.Context, messages []llm.Message, file
 	prompt := extractOriginalPrompt(messages)
 	preFiltered := false
 
-	var totalInput, totalOutput int
+	var totalInput, totalOutput, totalCacheCreation, totalCacheRead int
 	var iterationsUsed int
 
 	for i := range maxGatheringIterations {
@@ -134,27 +140,38 @@ func (a *Agent) gatheringPhase(ctx context.Context, messages []llm.Message, file
 			"input_tokens_used", totalInput,
 			"output_tokens_used", totalOutput,
 			"output_tokens_remaining", remaining,
+			"cache_creation_tokens", totalCacheCreation,
+			"cache_read_tokens", totalCacheRead,
 		)
 
 		trimmedMessages := trimConversation(messages, i)
+
+		// Disable cache on the first iteration (if gathering ends in 1 turn,
+		// the cache is never read) and when approaching the input token budget
+		// (the next call will likely be forced summary with different messages).
+		opts.DisableCache = i == 0 || totalInput >= maxGatheringInputTokens*8/10
 
 		resp, err := a.llm.SendMessage(ctx, GatheringSystemPrompt, trimmedMessages, opts)
 		if err != nil {
 			return nil, nil, fmt.Errorf("gathering llm call (iteration %d): %w", i+1, err)
 		}
 
-		totalInput += resp.Usage.InputTokens
+		totalInput += resp.Usage.TotalInputTokens()
 		totalOutput += resp.Usage.OutputTokens
+		totalCacheCreation += resp.Usage.CacheCreationInputTokens
+		totalCacheRead += resp.Usage.CacheReadInputTokens
 
 		// Text-only response: gathering is complete
 		if !resp.HasToolUse() {
 			return &gatheringResult{
-				summary:      resp.Content,
-				fileCache:    fileCache,
-				messages:     messages,
-				inputTokens:  totalInput,
-				outputTokens: totalOutput,
-				iterations:   i + 1,
+				summary:             resp.Content,
+				fileCache:           fileCache,
+				messages:            messages,
+				inputTokens:         totalInput,
+				outputTokens:        totalOutput,
+				cacheCreationTokens: totalCacheCreation,
+				cacheReadTokens:     totalCacheRead,
+				iterations:          i + 1,
 			}, nil, nil
 		}
 
@@ -241,14 +258,16 @@ func (a *Agent) gatheringPhase(ctx context.Context, messages []llm.Message, file
 			})
 			messages = append(messages, llm.NewToolResultsMessage(toolResults))
 			return nil, &RunResult{
-				Question:          askInput.Question,
-				PendingToolCallID: pendingAsk.ID,
-				Messages:          messages,
-				TotalInputTokens:  totalInput,
-				TotalOutputTokens: totalOutput,
-				Iterations:        i + 1,
-				Phase:             "gathering",
-				FileCache:         fileCache,
+				Question:                      askInput.Question,
+				PendingToolCallID:             pendingAsk.ID,
+				Messages:                      messages,
+				TotalInputTokens:              totalInput,
+				TotalOutputTokens:             totalOutput,
+				TotalCacheCreationInputTokens: totalCacheCreation,
+				TotalCacheReadInputTokens:     totalCacheRead,
+				Iterations:                    i + 1,
+				Phase:                         "gathering",
+				FileCache:                     fileCache,
 			}, nil
 		}
 
@@ -273,7 +292,8 @@ func (a *Agent) gatheringPhase(ctx context.Context, messages []llm.Message, file
 	}
 
 	forceOpts := &llm.SendOptions{
-		MaxTokens: min(remaining, perCallMaxTokens),
+		MaxTokens:    min(remaining, perCallMaxTokens),
+		DisableCache: true, // final gathering call; no subsequent request to read the cache
 	}
 	trimmedMessages := trimConversation(messages, maxGatheringIterations)
 	forceMessages := make([]llm.Message, len(trimmedMessages)+1)
@@ -287,16 +307,20 @@ func (a *Agent) gatheringPhase(ctx context.Context, messages []llm.Message, file
 	if err != nil {
 		return nil, nil, fmt.Errorf("gathering forced summary: %w", err)
 	}
-	totalInput += resp.Usage.InputTokens
+	totalInput += resp.Usage.TotalInputTokens()
 	totalOutput += resp.Usage.OutputTokens
+	totalCacheCreation += resp.Usage.CacheCreationInputTokens
+	totalCacheRead += resp.Usage.CacheReadInputTokens
 
 	return &gatheringResult{
-		summary:      resp.Content,
-		fileCache:    fileCache,
-		messages:     messages,
-		inputTokens:  totalInput,
-		outputTokens: totalOutput,
-		iterations:   maxGatheringIterations + 1,
+		summary:             resp.Content,
+		fileCache:           fileCache,
+		messages:            messages,
+		inputTokens:         totalInput,
+		outputTokens:        totalOutput,
+		cacheCreationTokens: totalCacheCreation,
+		cacheReadTokens:     totalCacheRead,
+		iterations:          maxGatheringIterations + 1,
 	}, nil, nil
 }
 
@@ -311,6 +335,7 @@ func (a *Agent) generatingPhase(ctx context.Context, prompt string, gathering *g
 
 	opts := buildGeneratingSendOptions()
 	opts.MaxTokens = generatingMaxTokens
+	opts.DisableCache = true // single call, no subsequent request to read the cache
 
 	slog.Info("agent generating phase",
 		"file_cache_size", len(gathering.fileCache),
@@ -330,10 +355,12 @@ func (a *Agent) generatingPhase(ctx context.Context, prompt string, gathering *g
 				return nil, fmt.Errorf("parse deliver_result: %w", err)
 			}
 			return &RunResult{
-				Response:          &agentResp,
-				TotalInputTokens:  resp.Usage.InputTokens,
-				TotalOutputTokens: resp.Usage.OutputTokens,
-				Iterations:        1,
+				Response:                      &agentResp,
+				TotalInputTokens:              resp.Usage.TotalInputTokens(),
+				TotalOutputTokens:             resp.Usage.OutputTokens,
+				TotalCacheCreationInputTokens: resp.Usage.CacheCreationInputTokens,
+				TotalCacheReadInputTokens:     resp.Usage.CacheReadInputTokens,
+				Iterations:                    1,
 			}, nil
 		}
 	}
@@ -341,10 +368,12 @@ func (a *Agent) generatingPhase(ctx context.Context, prompt string, gathering *g
 	// Fallback: if text response, treat as text result
 	if resp.Content != "" {
 		return &RunResult{
-			Response:          &AgentResponse{Type: "text", Content: resp.Content},
-			TotalInputTokens:  resp.Usage.InputTokens,
-			TotalOutputTokens: resp.Usage.OutputTokens,
-			Iterations:        1,
+			Response:                      &AgentResponse{Type: "text", Content: resp.Content},
+			TotalInputTokens:              resp.Usage.TotalInputTokens(),
+			TotalOutputTokens:             resp.Usage.OutputTokens,
+			TotalCacheCreationInputTokens: resp.Usage.CacheCreationInputTokens,
+			TotalCacheReadInputTokens:     resp.Usage.CacheReadInputTokens,
+			Iterations:                    1,
 		}, nil
 	}
 

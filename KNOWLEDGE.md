@@ -446,6 +446,31 @@ Go module cache is intentionally separated into a dedicated volume (`claude-gomo
 - Embedding-based retrieval: requires vector DB infrastructure, overkill for current scale
 - No pre-filtering: agent wastes tokens reading irrelevant files
 
+### Layer 4: Prompt Caching (Selective cache_control)
+
+**Decision**: Use Anthropic's prompt caching (`cache_control: ephemeral`) selectively — only on gathering iterations 2+ that are not near the input token budget. Disable caching for all single-call phases (generating, review, rewrite) and the first gathering iteration.
+
+**Rationale**:
+- Prompt caching charges 1.25x for cache creation but only 0.1x for cache reads. This is only beneficial when a cached prefix is reused by subsequent API calls with the same prefix.
+- **Gathering phase (multi-turn)**: Each iteration sends the full conversation history with the same system prompt. Iterations 2+ can cache-hit on the prefix from the previous iteration. This is where caching provides real value.
+- **First gathering iteration**: The next call has a different (longer) message list, and the first iteration's content is small enough that the creation overhead isn't worth it. If gathering ends in 1 turn, the cache is never read.
+- **Generating, review, rewrite phases**: Each is a single API call with a unique system prompt. No subsequent call shares the prefix, so cache creation is pure overhead.
+- **Near budget limit (≥80% of maxGatheringInputTokens)**: The next call will likely be a forced summary with different messages, so the cache from this iteration won't be read.
+
+**Implementation**: `SendOptions.DisableCache` flag controls whether `cache_control: ephemeral` is added to system prompt blocks and the last message. The flag is set per-call in the agent:
+- `gathering iteration == 0` → `DisableCache: true`
+- `totalInput >= maxGatheringInputTokens * 80%` → `DisableCache: true`
+- `forced summary call` → `DisableCache: true`
+- `generating phase` → `DisableCache: true`
+- `review / rewrite` → `DisableCache: true`
+
+**Measured impact** (eval run, 12 cases):
+- Before optimization: CacheCreate 392K, CacheRead 125K → net savings ~14.5K token-equivalents (0.9%)
+- After optimization: CacheCreate 127K, CacheRead 116K → net savings ~72K token-equivalents (5x improvement)
+- Quality unchanged (pass_rate 1.0 maintained)
+
+**Key insight**: The benefit of prompt caching is proportional to the number of cache reads per cache creation. Cases with many gathering iterations (5+) benefit significantly. Cases with 1–2 iterations see no benefit and only incur creation overhead if caching is enabled unconditionally.
+
 ### AgentResponse Type Classification
 
 **Decision**: Clarify type selection rules in the generating system prompt: `text` for questions/explanations/reviews/analysis, `new_repo` for source code creation, `file` for documents only.

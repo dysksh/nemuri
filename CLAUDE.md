@@ -8,7 +8,7 @@ See [SPEC.md](SPEC.md) for detailed architecture, [PLAN.md](PLAN.md) for impleme
 
 ## Project Status
 
-Phases 0–9 complete. Post-MVP refactoring complete. Token optimization implemented (duplicate read prevention, dynamic input token budget, file tree pre-filtering). Evaluation framework operational with 12 golden test cases, pass_rate 1.0 baseline established.
+Phases 0–9 complete. Post-MVP refactoring complete. Token optimization implemented (duplicate read prevention, dynamic input token budget, file tree pre-filtering, selective prompt caching). Evaluation framework operational with 12 golden test cases, pass_rate 1.0 baseline established.
 
 ## Tech Stack
 

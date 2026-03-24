@@ -65,64 +65,64 @@ type ReviewResult struct {
 
 // ReviewLoopResult tracks the full review loop execution.
 type ReviewLoopResult struct {
-	Response          *AgentResponse // final (possibly rewritten) response
-	Reviews           []ReviewResult // all review results
-	Revisions         int            // number of rewrites performed
-	Passed            bool           // true if final review passed threshold
-	TotalInputTokens  int            // cumulative input tokens used by review/rewrite
-	TotalOutputTokens int            // cumulative output tokens used by review/rewrite
+	Response                      *AgentResponse // final (possibly rewritten) response
+	Reviews                       []ReviewResult // all review results
+	Revisions                     int            // number of rewrites performed
+	Passed                        bool           // true if final review passed threshold
+	TotalInputTokens              int            // cumulative input tokens used by review/rewrite
+	TotalOutputTokens             int            // cumulative output tokens used by review/rewrite
+	TotalCacheCreationInputTokens int            // cumulative cache creation tokens
+	TotalCacheReadInputTokens     int            // cumulative cache read tokens
 }
 
 // Review evaluates the given agent response using the LLM.
-func (a *Agent) Review(ctx context.Context, prompt string, resp *AgentResponse) (*ReviewResult, int, int, error) {
+func (a *Agent) Review(ctx context.Context, prompt string, resp *AgentResponse) (*ReviewResult, llm.Usage, error) {
 	reviewInput := buildReviewInput(prompt, resp)
 	messages := []llm.Message{{Role: llm.RoleUser, Content: reviewInput}}
 	opts := buildReviewSendOptions()
+	opts.DisableCache = true // single call, no subsequent request to read the cache
 
 	llmResp, err := a.reviewLLM.SendMessage(ctx, reviewPrompt, messages, opts)
 	if err != nil {
-		return nil, 0, 0, fmt.Errorf("review LLM call: %w", err)
+		return nil, llm.Usage{}, fmt.Errorf("review LLM call: %w", err)
 	}
 
 	for _, tc := range llmResp.ToolCalls {
 		if tc.Name == reviewToolName {
 			var result ReviewResult
 			if err := json.Unmarshal([]byte(tc.InputJSON), &result); err != nil {
-				return nil, llmResp.Usage.InputTokens, llmResp.Usage.OutputTokens,
-					fmt.Errorf("parse review result: %w", err)
+				return nil, llmResp.Usage, fmt.Errorf("parse review result: %w", err)
 			}
-			return &result, llmResp.Usage.InputTokens, llmResp.Usage.OutputTokens, nil
+			return &result, llmResp.Usage, nil
 		}
 	}
 
-	return nil, llmResp.Usage.InputTokens, llmResp.Usage.OutputTokens,
-		fmt.Errorf("review did not produce submit_review tool call")
+	return nil, llmResp.Usage, fmt.Errorf("review did not produce submit_review tool call")
 }
 
 // Rewrite fixes flagged issues in the agent response using the LLM.
-func (a *Agent) Rewrite(ctx context.Context, prompt string, resp *AgentResponse, review *ReviewResult) (*AgentResponse, int, int, error) {
+func (a *Agent) Rewrite(ctx context.Context, prompt string, resp *AgentResponse, review *ReviewResult) (*AgentResponse, llm.Usage, error) {
 	rewriteInput := buildRewriteInput(prompt, resp, review)
 	messages := []llm.Message{{Role: llm.RoleUser, Content: rewriteInput}}
 	opts := buildRewriteSendOptions()
+	opts.DisableCache = true // single call, no subsequent request to read the cache
 
 	llmResp, err := a.reviewLLM.SendMessage(ctx, rewritePrompt, messages, opts)
 	if err != nil {
-		return nil, 0, 0, fmt.Errorf("rewrite LLM call: %w", err)
+		return nil, llm.Usage{}, fmt.Errorf("rewrite LLM call: %w", err)
 	}
 
 	for _, tc := range llmResp.ToolCalls {
 		if tc.Name == toolName {
 			var rewritten AgentResponse
 			if err := json.Unmarshal([]byte(tc.InputJSON), &rewritten); err != nil {
-				return nil, llmResp.Usage.InputTokens, llmResp.Usage.OutputTokens,
-					fmt.Errorf("parse rewrite result: %w", err)
+				return nil, llmResp.Usage, fmt.Errorf("parse rewrite result: %w", err)
 			}
-			return &rewritten, llmResp.Usage.InputTokens, llmResp.Usage.OutputTokens, nil
+			return &rewritten, llmResp.Usage, nil
 		}
 	}
 
-	return nil, llmResp.Usage.InputTokens, llmResp.Usage.OutputTokens,
-		fmt.Errorf("rewrite did not produce deliver_result tool call")
+	return nil, llmResp.Usage, fmt.Errorf("rewrite did not produce deliver_result tool call")
 }
 
 // RunWithReview runs the agent and then applies the review loop for code-producing responses.
@@ -155,6 +155,8 @@ func (a *Agent) RunWithReview(ctx context.Context, prompt string, cfg ReviewConf
 	runResult.Response = loopResult.Response
 	runResult.TotalInputTokens += loopResult.TotalInputTokens
 	runResult.TotalOutputTokens += loopResult.TotalOutputTokens
+	runResult.TotalCacheCreationInputTokens += loopResult.TotalCacheCreationInputTokens
+	runResult.TotalCacheReadInputTokens += loopResult.TotalCacheReadInputTokens
 
 	return runResult, loopResult, nil
 }
@@ -175,9 +177,11 @@ func (a *Agent) ReviewLoop(ctx context.Context, prompt string, resp *AgentRespon
 		slog.Info("review iteration", "revision", revision+1, "max", cfg.MaxRevisions)
 
 		// Review
-		review, inputTok, outputTok, err := a.Review(ctx, prompt, result.Response)
-		result.TotalInputTokens += inputTok
-		result.TotalOutputTokens += outputTok
+		review, usage, err := a.Review(ctx, prompt, result.Response)
+		result.TotalInputTokens += usage.TotalInputTokens()
+		result.TotalOutputTokens += usage.OutputTokens
+		result.TotalCacheCreationInputTokens += usage.CacheCreationInputTokens
+		result.TotalCacheReadInputTokens += usage.CacheReadInputTokens
 		if err != nil {
 			slog.Warn("review failed, stopping review loop", "revision", revision+1, "error", err)
 			return result, nil // return current best effort
@@ -243,9 +247,11 @@ func (a *Agent) ReviewLoop(ctx context.Context, prompt string, resp *AgentRespon
 			Summary: review.Summary,
 		}
 
-		rewritten, inputTok, outputTok, err := a.Rewrite(ctx, prompt, result.Response, filteredReview)
-		result.TotalInputTokens += inputTok
-		result.TotalOutputTokens += outputTok
+		rewritten, rewriteUsage, err := a.Rewrite(ctx, prompt, result.Response, filteredReview)
+		result.TotalInputTokens += rewriteUsage.TotalInputTokens()
+		result.TotalOutputTokens += rewriteUsage.OutputTokens
+		result.TotalCacheCreationInputTokens += rewriteUsage.CacheCreationInputTokens
+		result.TotalCacheReadInputTokens += rewriteUsage.CacheReadInputTokens
 		if err != nil {
 			slog.Warn("rewrite failed, stopping review loop", "revision", revision+1, "error", err)
 			return result, nil // return current best effort

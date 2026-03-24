@@ -117,14 +117,16 @@ type TrialResult struct {
 
 // TrialMetrics holds measured metrics from a single trial.
 type TrialMetrics struct {
-	InputTokens         int   `json:"input_tokens"`
-	OutputTokens        int   `json:"output_tokens"`
-	GatheringIterations int   `json:"gathering_iterations"`
-	ReviewRevisions     int   `json:"review_revisions"`
-	ReviewPassed        bool  `json:"review_passed"`
-	DurationMs          int64 `json:"duration_ms"`
-	OutputFileCount     int   `json:"output_file_count"`
-	QuestionsAsked      int   `json:"questions_asked"`
+	InputTokens              int   `json:"input_tokens"`
+	OutputTokens             int   `json:"output_tokens"`
+	CacheCreationInputTokens int   `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int   `json:"cache_read_input_tokens"`
+	GatheringIterations      int   `json:"gathering_iterations"`
+	ReviewRevisions          int   `json:"review_revisions"`
+	ReviewPassed             bool  `json:"review_passed"`
+	DurationMs               int64 `json:"duration_ms"`
+	OutputFileCount          int   `json:"output_file_count"`
+	QuestionsAsked           int   `json:"questions_asked"`
 }
 
 // Stats holds aggregated statistics.
