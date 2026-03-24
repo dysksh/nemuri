@@ -85,6 +85,8 @@ func (e *Executor) Execute(ctx context.Context, job *state.Job, isResume bool, r
 			runResult.Response = loopResult.Response
 			runResult.TotalInputTokens += loopResult.TotalInputTokens
 			runResult.TotalOutputTokens += loopResult.TotalOutputTokens
+			runResult.TotalCacheCreationInputTokens += loopResult.TotalCacheCreationInputTokens
+			runResult.TotalCacheReadInputTokens += loopResult.TotalCacheReadInputTokens
 			reviewResult = loopResult
 		}
 	} else {

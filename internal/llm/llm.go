@@ -40,15 +40,25 @@ type ToolChoice struct {
 
 // SendOptions holds optional parameters for SendMessage.
 type SendOptions struct {
-	Tools      []ToolDefinition
-	ToolChoice *ToolChoice
-	MaxTokens  int // per-call max output tokens (0 = use client default)
+	Tools        []ToolDefinition
+	ToolChoice   *ToolChoice
+	MaxTokens    int  // per-call max output tokens (0 = use client default)
+	DisableCache bool // when true, skip prompt cache breakpoints (cache_control)
 }
 
 // Usage holds token usage for a single API call.
 type Usage struct {
-	InputTokens  int
-	OutputTokens int
+	InputTokens              int
+	OutputTokens             int
+	CacheCreationInputTokens int
+	CacheReadInputTokens     int
+}
+
+// TotalInputTokens returns the total input tokens including cached tokens.
+// When prompt caching is active, InputTokens only counts uncached tokens.
+// The true total is InputTokens + CacheCreationInputTokens + CacheReadInputTokens.
+func (u Usage) TotalInputTokens() int {
+	return u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
 }
 
 // ToolCall represents a single tool_use block from the LLM response.

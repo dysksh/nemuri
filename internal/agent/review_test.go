@@ -85,7 +85,7 @@ func TestAgent_Review(t *testing.T) {
 		Files: []agent.OutputFile{{Path: "main.go", Content: "package main"}},
 	}
 
-	result, inputTok, outputTok, err := a.Review(context.Background(), "test prompt", resp)
+	result, usage, err := a.Review(context.Background(), "test prompt", resp)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -95,8 +95,8 @@ func TestAgent_Review(t *testing.T) {
 	if len(result.Issues) != 1 {
 		t.Errorf("expected 1 issue, got %d", len(result.Issues))
 	}
-	if inputTok != 200 || outputTok != 100 {
-		t.Errorf("unexpected token counts: %d, %d", inputTok, outputTok)
+	if usage.InputTokens != 200 || usage.OutputTokens != 100 {
+		t.Errorf("unexpected token counts: %d, %d", usage.InputTokens, usage.OutputTokens)
 	}
 }
 
@@ -124,7 +124,7 @@ func TestAgent_Rewrite(t *testing.T) {
 		Summary: "Needs work",
 	}
 
-	result, _, _, err := a.Rewrite(context.Background(), "test prompt", resp, review)
+	result, _, err := a.Rewrite(context.Background(), "test prompt", resp, review)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

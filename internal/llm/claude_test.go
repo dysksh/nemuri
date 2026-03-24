@@ -289,3 +289,108 @@ func TestClaudeClient_MaxTokensOption(t *testing.T) {
 		t.Fatalf("SendMessage() error = %v", err)
 	}
 }
+
+func TestClaudeClient_PromptCaching_SystemFormat(t *testing.T) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		readJSON(t, r, &req)
+
+		// System should be an array with cache_control
+		system, ok := req["system"].([]any)
+		if !ok || len(system) == 0 {
+			t.Fatal("system should be a non-empty array")
+		}
+		block, ok := system[0].(map[string]any)
+		if !ok {
+			t.Fatal("system block should be an object")
+		}
+		if block["type"] != "text" {
+			t.Errorf("system block type = %v, want text", block["type"])
+		}
+		if block["text"] != "test system" {
+			t.Errorf("system block text = %v, want 'test system'", block["text"])
+		}
+		cc, ok := block["cache_control"].(map[string]any)
+		if !ok {
+			t.Fatal("system block should have cache_control")
+		}
+		if cc["type"] != "ephemeral" {
+			t.Errorf("cache_control type = %v, want ephemeral", cc["type"])
+		}
+
+		writeJSON(t, w, map[string]any{
+			"content":     []map[string]any{{"type": "text", "text": "ok"}},
+			"stop_reason": "end_turn",
+			"usage": map[string]int{
+				"input_tokens":                10,
+				"output_tokens":               5,
+				"cache_creation_input_tokens": 8,
+				"cache_read_input_tokens":     2,
+			},
+		})
+	})
+	defer server.Close()
+
+	client := testClaudeClient(t, server.URL)
+	resp, err := client.SendMessage(context.Background(), "test system", []llm.Message{
+		{Role: "user", Content: "test"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("SendMessage() error = %v", err)
+	}
+	if resp.Usage.CacheCreationInputTokens != 8 {
+		t.Errorf("cache creation tokens = %d, want 8", resp.Usage.CacheCreationInputTokens)
+	}
+	if resp.Usage.CacheReadInputTokens != 2 {
+		t.Errorf("cache read tokens = %d, want 2", resp.Usage.CacheReadInputTokens)
+	}
+}
+
+func TestClaudeClient_PromptCaching_MessageCacheControl(t *testing.T) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		readJSON(t, r, &req)
+
+		// Last message should have cache_control on its content
+		msgs, ok := req["messages"].([]any)
+		if !ok || len(msgs) == 0 {
+			t.Fatal("messages should be a non-empty array")
+		}
+		lastMsg, ok := msgs[len(msgs)-1].(map[string]any)
+		if !ok {
+			t.Fatal("last message should be an object")
+		}
+		content, ok := lastMsg["content"].([]any)
+		if !ok {
+			t.Fatal("last message content should be an array (wrapped for cache_control)")
+		}
+		lastBlock, ok := content[len(content)-1].(map[string]any)
+		if !ok {
+			t.Fatal("last content block should be an object")
+		}
+		cc, ok := lastBlock["cache_control"].(map[string]any)
+		if !ok {
+			t.Fatal("last content block should have cache_control")
+		}
+		if cc["type"] != "ephemeral" {
+			t.Errorf("cache_control type = %v, want ephemeral", cc["type"])
+		}
+
+		writeJSON(t, w, map[string]any{
+			"content":     []map[string]any{{"type": "text", "text": "ok"}},
+			"stop_reason": "end_turn",
+			"usage":       map[string]int{"input_tokens": 10, "output_tokens": 5},
+		})
+	})
+	defer server.Close()
+
+	client := testClaudeClient(t, server.URL)
+	_, err := client.SendMessage(context.Background(), "sys", []llm.Message{
+		{Role: "user", Content: "first message"},
+		{Role: "assistant", Content: json.RawMessage(`[{"type":"text","text":"reply"}]`)},
+		{Role: "user", Content: "second message"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("SendMessage() error = %v", err)
+	}
+}

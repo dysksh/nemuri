@@ -66,12 +66,34 @@ func NewClaudeClientWithURL(apiKey, model, apiURL string) Client {
 	}
 }
 
+// cacheControl marks a content block as a prompt cache breakpoint.
+type cacheControl struct {
+	Type string `json:"type"` // "ephemeral"
+}
+
+var ephemeralCache = &cacheControl{Type: "ephemeral"}
+
+// systemBlock is a content block in the system prompt array.
+type systemBlock struct {
+	Type         string        `json:"type"`
+	Text         string        `json:"text"`
+	CacheControl *cacheControl `json:"cache_control,omitempty"`
+}
+
+// apiMessage is an API-level message with role and content.
+// Unlike llm.Message, this type is used only for JSON serialization to the Anthropic API,
+// and may contain content blocks with cache_control.
+type apiMessage struct {
+	Role    string `json:"role"`
+	Content any    `json:"content"`
+}
+
 // apiRequest is the request body for the Anthropic Messages API.
 type apiRequest struct {
 	Model      string           `json:"model"`
 	MaxTokens  int              `json:"max_tokens"`
-	System     string           `json:"system,omitempty"`
-	Messages   []Message        `json:"messages"`
+	System     []systemBlock    `json:"system,omitempty"`
+	Messages   []apiMessage     `json:"messages"`
 	Tools      []ToolDefinition `json:"tools,omitempty"`
 	ToolChoice *ToolChoice      `json:"tool_choice,omitempty"`
 }
@@ -81,8 +103,10 @@ type apiResponse struct {
 	Content    []apiContentBlock `json:"content"`
 	StopReason string            `json:"stop_reason"`
 	Usage      struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
+		InputTokens              int `json:"input_tokens"`
+		OutputTokens             int `json:"output_tokens"`
+		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+		CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 	} `json:"usage"`
 }
 
@@ -104,11 +128,12 @@ type apiError struct {
 }
 
 func (c *ClaudeClient) SendMessage(ctx context.Context, systemPrompt string, messages []Message, opts *SendOptions) (*Response, error) {
+	disableCache := opts != nil && opts.DisableCache
 	reqBody := apiRequest{
 		Model:     c.model,
 		MaxTokens: c.maxTokens,
-		System:    systemPrompt,
-		Messages:  messages,
+		System:    buildSystemBlocksOpt(systemPrompt, !disableCache),
+		Messages:  buildMessagesOpt(messages, !disableCache),
 	}
 	if opts != nil {
 		reqBody.Tools = opts.Tools
@@ -213,8 +238,10 @@ func (c *ClaudeClient) SendMessage(ctx context.Context, systemPrompt string, mes
 	}
 
 	usage := Usage{
-		InputTokens:  apiResp.Usage.InputTokens,
-		OutputTokens: apiResp.Usage.OutputTokens,
+		InputTokens:              apiResp.Usage.InputTokens,
+		OutputTokens:             apiResp.Usage.OutputTokens,
+		CacheCreationInputTokens: apiResp.Usage.CacheCreationInputTokens,
+		CacheReadInputTokens:     apiResp.Usage.CacheReadInputTokens,
 	}
 
 	// Collect all tool_use blocks
@@ -303,4 +330,79 @@ func retryBackoff(attempt int, retryAfter string) time.Duration {
 	}
 	backoffMs := float64(initialBackoffMs) * math.Pow(2, float64(attempt))
 	return time.Duration(backoffMs) * time.Millisecond
+}
+
+// buildSystemBlocksOpt converts a system prompt string to content blocks.
+// When cache is true, adds cache_control for prompt caching.
+func buildSystemBlocksOpt(systemPrompt string, cache bool) []systemBlock {
+	if systemPrompt == "" {
+		return nil
+	}
+	block := systemBlock{Type: "text", Text: systemPrompt}
+	if cache {
+		block.CacheControl = ephemeralCache
+	}
+	return []systemBlock{block}
+}
+
+// buildMessagesOpt converts messages for the API.
+// When cache is true, adds cache_control to the last message for prefix caching.
+func buildMessagesOpt(messages []Message, cache bool) []apiMessage {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	result := make([]apiMessage, len(messages))
+	for i, msg := range messages {
+		if cache && i == len(messages)-1 {
+			result[i] = buildCachedMessage(msg)
+		} else {
+			result[i] = apiMessage(msg)
+		}
+	}
+	return result
+}
+
+// buildCachedMessage adds cache_control to the last content block of a message.
+func buildCachedMessage(msg Message) apiMessage {
+	cc := map[string]string{"type": "ephemeral"}
+
+	switch v := msg.Content.(type) {
+	case string:
+		return apiMessage{
+			Role: msg.Role,
+			Content: []map[string]any{
+				{"type": "text", "text": v, "cache_control": cc},
+			},
+		}
+	case json.RawMessage:
+		var blocks []map[string]any
+		if err := json.Unmarshal(v, &blocks); err != nil || len(blocks) == 0 {
+			return apiMessage(msg)
+		}
+		blocks[len(blocks)-1]["cache_control"] = cc
+		return apiMessage{Role: msg.Role, Content: blocks}
+	case []ToolResultBlock:
+		if len(v) == 0 {
+			return apiMessage(msg)
+		}
+		blocks := make([]map[string]any, len(v))
+		for i, r := range v {
+			block := map[string]any{
+				"type":        r.Type,
+				"tool_use_id": r.ToolUseID,
+				"content":     r.Content,
+			}
+			if r.IsError {
+				block["is_error"] = true
+			}
+			if i == len(v)-1 {
+				block["cache_control"] = cc
+			}
+			blocks[i] = block
+		}
+		return apiMessage{Role: msg.Role, Content: blocks}
+	default:
+		return apiMessage(msg)
+	}
 }

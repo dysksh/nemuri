@@ -123,3 +123,4 @@
 - [x] File tree pre-filtering (soft suggestions based on lightweight LLM call before gathering)
 - [x] Gathering limit judgment (dynamic input token budget: 80k tokens)
 - [x] Duplicate file read prevention (skip re-reading already-cached files)
+- [x] Selective prompt caching (disable cache_control for single-call phases and first/last gathering iterations)

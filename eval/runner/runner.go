@@ -122,12 +122,14 @@ func (r *Runner) runTrial(ctx context.Context, tc types.TestCase, trialNum int) 
 
 	// Build metrics
 	metrics := types.TrialMetrics{
-		InputTokens:         runResult.TotalInputTokens,
-		OutputTokens:        runResult.TotalOutputTokens,
-		GatheringIterations: runResult.Iterations,
-		DurationMs:          duration.Milliseconds(),
-		OutputFileCount:     len(runResult.Response.Files),
-		QuestionsAsked:      questionsAsked,
+		InputTokens:              runResult.TotalInputTokens,
+		OutputTokens:             runResult.TotalOutputTokens,
+		CacheCreationInputTokens: runResult.TotalCacheCreationInputTokens,
+		CacheReadInputTokens:     runResult.TotalCacheReadInputTokens,
+		GatheringIterations:      runResult.Iterations,
+		DurationMs:               duration.Milliseconds(),
+		OutputFileCount:          len(runResult.Response.Files),
+		QuestionsAsked:           questionsAsked,
 	}
 	if reviewResult != nil {
 		metrics.ReviewRevisions = reviewResult.Revisions
@@ -196,6 +198,8 @@ func (r *Runner) executeWithQuestionHandling(
 				resumeResult.Response = loopResult.Response
 				resumeResult.TotalInputTokens += loopResult.TotalInputTokens
 				resumeResult.TotalOutputTokens += loopResult.TotalOutputTokens
+				resumeResult.TotalCacheCreationInputTokens += loopResult.TotalCacheCreationInputTokens
+				resumeResult.TotalCacheReadInputTokens += loopResult.TotalCacheReadInputTokens
 				reviewResult = loopResult
 			}
 		}
