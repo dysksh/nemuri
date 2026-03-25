@@ -103,7 +103,8 @@ eval-test:
 	go test --count=1 -cover ./eval/...
 
 EVAL_SNAPSHOT  ?= nemuri-v1
-EVAL_TRIALS    ?= 5
+EVAL_TRIALS      ?= 5
+EVAL_CONCURRENCY ?= 1
 # ?= is recursively expanded: the $(shell ...) call runs only when EVAL_BUCKET is actually referenced,
 # so non-eval targets (e.g. make build) do not invoke AWS CLI.
 EVAL_BUCKET    ?= nemuri-eval-fixtures-$(shell aws sts get-caller-identity --query Account --output text 2>/dev/null)
@@ -130,7 +131,7 @@ eval-sync-up:
 # 評価実行
 eval-run:
 	. ./.env && ANTHROPIC_API_KEY=$$ANTHROPIC_API_KEY \
-	go run ./eval/cmd/eval run --trials $(EVAL_TRIALS) $(EVAL_ARGS)
+	go run ./eval/cmd/eval run --trials $(EVAL_TRIALS) --concurrency $(EVAL_CONCURRENCY) $(EVAL_ARGS)
 
 # 2 つの結果を比較
 eval-compare:

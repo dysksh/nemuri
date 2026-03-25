@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/nemuri/nemuri/eval/checker"
@@ -21,6 +23,7 @@ import (
 // Config holds runner configuration.
 type Config struct {
 	Trials       int
+	Concurrency  int // max concurrent test cases (0 or 1 = sequential)
 	ReviewConfig agent.ReviewConfig
 	FixtureDir   string // base directory for fixture snapshots
 	APIKey       string
@@ -39,7 +42,16 @@ func New(cfg Config) *Runner {
 }
 
 // RunAll executes all test cases and returns results keyed by case ID.
+// When Concurrency > 1, test cases run in concurrent up to the configured limit.
 func (r *Runner) RunAll(ctx context.Context, testCases []types.TestCase) (map[string]types.CaseResult, error) {
+	concurrency := r.config.Concurrency
+	if concurrency <= 1 {
+		return r.runAllSequential(ctx, testCases)
+	}
+	return r.runAllConcurrent(ctx, testCases, concurrency)
+}
+
+func (r *Runner) runAllSequential(ctx context.Context, testCases []types.TestCase) (map[string]types.CaseResult, error) {
 	results := make(map[string]types.CaseResult, len(testCases))
 
 	for i, tc := range testCases {
@@ -53,11 +65,84 @@ func (r *Runner) RunAll(ctx context.Context, testCases []types.TestCase) (map[st
 		caseResult, err := r.RunCase(ctx, tc)
 		if err != nil {
 			slog.Error("test case failed", "case", tc.ID, "error", err)
-			return results, fmt.Errorf("case %s: %w", tc.ID, err)
+			return nil, fmt.Errorf("case %s: %w", tc.ID, err)
 		}
 		results[tc.ID] = *caseResult
 	}
 
+	return results, nil
+}
+
+type caseOutcome struct {
+	caseID string
+	result *types.CaseResult
+	err    error
+}
+
+func (r *Runner) runAllConcurrent(ctx context.Context, testCases []types.TestCase, concurrency int) (map[string]types.CaseResult, error) {
+	sem := make(chan struct{}, concurrency)
+	outcomes := make(chan caseOutcome, len(testCases))
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var started atomic.Uint64
+	total := len(testCases)
+
+	var wg sync.WaitGroup
+	for _, tc := range testCases {
+		wg.Add(1)
+		go func(tc types.TestCase) {
+			defer wg.Done()
+
+			// Acquire semaphore
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				outcomes <- caseOutcome{caseID: tc.ID, err: ctx.Err()}
+				return
+			}
+			defer func() { <-sem }()
+
+			n := started.Add(1)
+			slog.Info("running test case",
+				"case", tc.ID,
+				"progress", fmt.Sprintf("%d/%d", n, total),
+				"type", tc.Category.TaskType,
+				"ambiguity", tc.Category.Ambiguity,
+			)
+
+			caseResult, err := r.RunCase(ctx, tc)
+			if err != nil {
+				slog.Error("test case failed", "case", tc.ID, "error", err)
+				outcomes <- caseOutcome{caseID: tc.ID, err: fmt.Errorf("case %s: %w", tc.ID, err)}
+				cancel()
+				return
+			}
+			outcomes <- caseOutcome{caseID: tc.ID, result: caseResult}
+		}(tc)
+	}
+
+	// Close outcomes channel when all goroutines finish
+	go func() {
+		wg.Wait()
+		close(outcomes)
+	}()
+
+	results := make(map[string]types.CaseResult, len(testCases))
+	var firstErr error
+	for o := range outcomes {
+		if o.err != nil && firstErr == nil {
+			firstErr = o.err
+		}
+		if o.result != nil {
+			results[o.caseID] = *o.result
+		}
+	}
+
+	if firstErr != nil {
+		return nil, firstErr
+	}
 	return results, nil
 }
 
