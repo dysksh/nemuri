@@ -257,6 +257,7 @@ make eval-sync-up                  # スナップショットを S3 にアップ
 make eval-sync-down                # S3 からスナップショットをダウンロード（他環境で実行時）
 make eval-run                      # 全テストケースを 5 回ずつ実行（.env の ANTHROPIC_API_KEY を使用）
 make eval-run EVAL_TRIALS=3        # トライアル数を変更
+make eval-run EVAL_CONCURRENCY=3   # 並列数を変更
 make eval-run EVAL_ARGS="--case case-001"  # 特定ケースのみ実行
 ```
 

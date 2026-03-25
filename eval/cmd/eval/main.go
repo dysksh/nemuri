@@ -70,6 +70,7 @@ Commands:
 func runCmd(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	trials := fs.Int("trials", defaultTrials, "number of trials per test case")
+	concurrency := fs.Int("concurrency", 1, "max concurrent test cases (1 = sequential)")
 	caseID := fs.String("case", "", "run a specific test case (default: all)")
 	reviewModel := fs.String("review-model", "", "Claude model for review/rewrite (default: claude-opus-4-6)")
 	testCaseDir := fs.String("testcase-dir", defaultTestCaseDir, "directory containing test case JSON files")
@@ -98,6 +99,7 @@ func runCmd(args []string) error {
 	slog.Info("starting evaluation",
 		"cases", len(testCases),
 		"trials", *trials,
+		"concurrency", *concurrency,
 	)
 
 	// Build test case map for summary
@@ -121,6 +123,7 @@ func runCmd(args []string) error {
 	// Create runner
 	r := runner.New(runner.Config{
 		Trials:       *trials,
+		Concurrency:  *concurrency,
 		ReviewConfig: agent.DefaultReviewConfig(),
 		FixtureDir:   *fixtureDir,
 		APIKey:       apiKey,
