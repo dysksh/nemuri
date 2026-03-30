@@ -58,7 +58,7 @@
       "glob": "*.ts",
       "id": "r2",
       "indicators": {
-        "strong": ":\\s*(string|number|boolean).*=\u003e|\\(.*:\\s*string|\u003cT\u003e|\u003cT extends",
+        "strong": ":\\s*(string|number|boolean).*=>|\\(.*:\\s*string|<T>|<T extends",
         "weak": ": string|: number"
       },
       "weight": 2

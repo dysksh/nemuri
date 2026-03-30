@@ -127,7 +127,7 @@
       "criterion": "インメモリデータストアがmap/dictで実装されている",
       "id": "r4",
       "indicators": {
-        "strong": "map\\[.*\\].*User|sync\\.Map|Map\u003c.*User|dict\\[|= \\{\\}|= new Map",
+        "strong": "map\\[.*\\].*User|sync\\.Map|Map<.*User|dict\\[|= \\{\\}|= new Map",
         "weak": "map|Map|dict|store|Store"
       },
       "weight": 2
