@@ -82,6 +82,10 @@ nemuri/
 └── KNOWLEDGE.md              # 設計判断の記録
 ```
 
+## 動作確認環境
+
+本プロジェクトの開発環境（devcontainer / `make up`）は **Linux** 上でのみ動作確認しています。**macOS では未検証**のため、正常に動作しない可能性があります。macOS 対応は近日中に行う予定です。
+
 ## 前提条件
 
 - Docker
@@ -272,4 +276,4 @@ make eval-recheck RUN=eval/runs/run-before.json
 
 ## ライセンス
 
-Private
+[MIT License](LICENSE)

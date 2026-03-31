@@ -365,14 +365,13 @@ Go module cache is intentionally separated into a dedicated volume (`claude-gomo
 - Saving raw_response enables retroactive analysis: new rubric criteria can be applied to past results without re-running (which would cost API calls and introduce temporal variation)
 - Expectations can only be added (new test cases), never modified or deleted
 
-### Fixture Snapshots in S3 (Not Git)
+### Fixture Snapshots (Not Git-Tracked)
 
-**Decision**: Store repository snapshots for test fixtures in S3, not in git.
+**Decision**: Store repository snapshots for test fixtures outside of git (`.gitignore`).
 
 **Rationale**:
 - A full repo snapshot (~1–5 MB) duplicated per test case would bloat git history permanently (git never forgets large blobs even if deleted later)
-- S3 provides versioned, durable storage at negligible cost
-- `snapshots.json` (the index) is git-tracked and contains S3 keys + SHA256 checksums for integrity verification
+- Snapshots are placed in `eval/fixtures/snapshots/` and excluded via `.gitignore`
 - Snapshots are shared across test cases (e.g., case-001, 002, 003 all reference `nemuri-v1`) to avoid duplication
 - New snapshots are created infrequently (when the codebase changes significantly enough to warrant new test cases against the new state)
 
