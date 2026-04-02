@@ -13,6 +13,12 @@ setup-hooks:
 	@echo "Git hooks installed."
 
 up:
+	@[ -f .env ] || { [ -f .env.example ] && cp .env.example .env || touch .env; }
+	@[ -f terraform/envs/dev/backend.conf ] || touch terraform/envs/dev/backend.conf
+	@[ -f terraform/envs/dev/terraform.tfvars ] || touch terraform/envs/dev/terraform.tfvars
+	@[ -f "$(HOME)/.gitconfig" ] || touch "$(HOME)/.gitconfig"
+	@[ -f "$(HOME)/.claude.json" ] || touch "$(HOME)/.claude.json"
+	@mkdir -p "$(HOME)/.ssh" "$(HOME)/.aws" "$(HOME)/.config/infracost" "$(HOME)/.config/nvim" "$(HOME)/.claude"
 	USER_UID=$$(id -u) USER_GID=$$(id -g) DEV_HOME=$$([ "$$(id -u)" = "0" ] && echo /root || echo /home/dev) \
 	docker compose up -d --build
 
@@ -130,7 +136,6 @@ eval-sync-up:
 
 # 評価実行
 eval-run:
-	. ./.env && ANTHROPIC_API_KEY=$$ANTHROPIC_API_KEY \
 	go run ./eval/cmd/eval run --trials $(EVAL_TRIALS) --concurrency $(EVAL_CONCURRENCY) $(EVAL_ARGS)
 
 # 2 つの結果を比較

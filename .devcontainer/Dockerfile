@@ -13,6 +13,7 @@ ARG INFRACOST_VERSION=0.10.43
 ARG GOPLS_VERSION=0.19.0
 ARG GOIMPORTS_VERSION=0.31.0
 ARG DOCKER_CLI_VERSION=5:28.1.1-1~debian.12~bookworm
+ARG BUILDX_VERSION=0.23.0
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -68,13 +69,17 @@ RUN INFRACOST_ARCH=$([ "${TARGETARCH}" = "amd64" ] && echo "amd64" || echo "arm6
     && chmod +x /usr/local/bin/infracost \
     && rm -rf /tmp/infracost*
 
-# Docker CLI (for DinD via socket mount)
+# Docker CLI + buildx (for DinD via socket mount)
 RUN curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker.gpg \
     && echo "deb [arch=${TARGETARCH} signed-by=/usr/share/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" \
        > /etc/apt/sources.list.d/docker.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends docker-ce-cli=${DOCKER_CLI_VERSION} \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /usr/local/lib/docker/cli-plugins \
+    && curl -fsSL "https://github.com/docker/buildx/releases/download/v${BUILDX_VERSION}/buildx-v${BUILDX_VERSION}.linux-${TARGETARCH}" \
+       -o /usr/local/lib/docker/cli-plugins/docker-buildx \
+    && chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
 
 # AWS CLI v2
 RUN AWSCLI_ARCH=$([ "${TARGETARCH}" = "amd64" ] && echo "x86_64" || echo "aarch64") \
@@ -86,7 +91,9 @@ RUN AWSCLI_ARCH=$([ "${TARGETARCH}" = "amd64" ] && echo "x86_64" || echo "aarch6
 # Non-root user (used when USER_UID != 0)
 RUN groupadd --gid 1000 dev \
     && useradd --uid 1000 --gid 1000 -m -s /bin/bash dev \
-    && echo "dev ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/dev
+    && echo "dev ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/dev \
+    && chmod 777 /home/dev \
+    && chmod a+w /etc/passwd /etc/group
 
 WORKDIR /workspace
 

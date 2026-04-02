@@ -7,6 +7,7 @@ services:
     user: ${USER_UID:-1000}:${USER_GID:-1000}
     volumes:
       - .:/workspace
+      - /dev/null:/workspace/.env:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOME}/.gitconfig:${DEV_HOME:-/home/dev}/.gitconfig:ro
       - ${HOME}/.ssh:${DEV_HOME:-/home/dev}/.ssh:ro
@@ -15,6 +16,9 @@ services:
       - ${HOME}/.config/nvim:${DEV_HOME:-/home/dev}/.config/nvim
       - nvim-data:${DEV_HOME:-/home/dev}/.local/share/nvim
     working_dir: /workspace
+    env_file:
+      - path: .env
+        required: false
     environment:
       - AWS_PROFILE
       - AWS_REGION=${AWS_REGION:-ap-northeast-1}
