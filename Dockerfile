@@ -1,5 +1,5 @@
 # -- build stage --
-FROM golang:1.25-alpine AS builder
+FROM --platform=linux/amd64 golang:1.25-alpine AS builder
 
 WORKDIR /app
 COPY go.mod go.sum ./
@@ -12,7 +12,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o agent-eng
 # Isolated so the .deb is cached independently of runtime apt packages.
 # If GitHub releases become unavailable, replace the URL with a private
 # S3/ECR-hosted copy (see KNOWLEDGE.md).
-FROM debian:12-slim AS wkhtmltopdf
+FROM --platform=linux/amd64 debian:12-slim AS wkhtmltopdf
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates wget && \
     wget -q -O /tmp/wkhtmltox.deb \
@@ -20,7 +20,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # -- runtime stage --
-FROM debian:12-slim
+FROM --platform=linux/amd64 debian:12-slim
 
 # Install wkhtmltopdf from cached .deb + runtime dependencies
 COPY --from=wkhtmltopdf /tmp/wkhtmltox.deb /tmp/wkhtmltox.deb
