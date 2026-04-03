@@ -82,10 +82,6 @@ nemuri/
 └── KNOWLEDGE.md              # 設計判断の記録
 ```
 
-## 動作確認環境
-
-本プロジェクトの開発環境（devcontainer / `make up`）は **Linux** 上でのみ動作確認しています。**macOS では未検証**のため、正常に動作しない可能性があります。macOS 対応は近日中に行う予定です。
-
 ## 前提条件
 
 - Docker
@@ -107,7 +103,31 @@ nemuri/
 3. **Bot** タブで Bot を作成し、`TOKEN` を控える
 4. **OAuth2 > URL Generator** で `bot` スコープを選択し、Bot Permissions で「Send Messages」「Create Public Threads」「Send Messages in Threads」を付与して、生成した URL でサーバーに招待
 
-### 2. リポジトリのクローンと開発コンテナの起動
+### 2. 環境変数・Terraform 変数の設定（初回のみ）
+
+`.env` を作成（`make deploy` でシークレット登録・コマンド登録に使用）:
+
+```bash
+cp .env.example .env
+# 各値を埋める:
+export DISCORD_APP_ID=
+export DISCORD_BOT_TOKEN=
+export ANTHROPIC_API_KEY=
+export GITHUB_PAT=
+```
+
+`terraform/envs/dev/terraform.tfvars` を作成:
+
+```hcl
+environment          = "dev"
+project              = "nemuri"
+aws_region           = "ap-northeast-1"
+account_id           = "..."   # AWS のアカウントID
+discord_public_key   = "..."   # Discord Developer Portal > General Information > PUBLIC KEY
+default_github_owner = "..."   # GitHub のユーザー名 or Organization 名
+```
+
+### 3. リポジトリのクローンと開発コンテナの起動
 
 `make up` の前に `aws configure` で AWS 認証情報を設定しておくこと（初回起動時に tfstate 用 S3 バケットの作成が実行される）。
 
@@ -141,30 +161,6 @@ make claude    # claude コンテナで Claude Code を起動
 
 両コンテナとも Go ツールチェーンを共有しているため、claude コンテナ内でも `go build` / `go test` は実行可能。
 
-### 3. 環境変数・Terraform 変数の設定（初回のみ）
-
-`.env` を作成（`make deploy` でシークレット登録・コマンド登録に使用）:
-
-```bash
-cp .env.example .env
-# 各値を埋める:
-export DISCORD_APP_ID=
-export DISCORD_BOT_TOKEN=
-export ANTHROPIC_API_KEY=
-export GITHUB_PAT=
-```
-
-`terraform/envs/dev/terraform.tfvars` を作成:
-
-```hcl
-environment          = "dev"
-project              = "nemuri"
-aws_region           = "ap-northeast-1"
-account_id           = "..."   # AWS のアカウントID
-discord_public_key   = "..."   # Discord Developer Portal > General Information > PUBLIC KEY
-default_github_owner = "..."   # GitHub のユーザー名 or Organization 名
-```
-
 ### 4. デプロイ
 
 ```bash
@@ -192,10 +188,10 @@ Discord サーバーで `/nemuri` スラッシュコマンドを実行する。
 
 ```
 1. Discord Developer Portal でアプリ & Bot 作成    ← 手動（初回のみ）
-2. git clone && make up && make dev                ← コマンド（bootstrap 自動実行）
-3. .env と terraform.tfvars を作成                  ← 手動（初回のみ）
+2. .env と terraform.tfvars を作成                 ← 手動（初回のみ）
+3. git clone && make up && make dev                ← コマンド（bootstrap 自動実行）
 4. make deploy                                     ← コマンド（これだけで全自動）
-5. /nemuri で動作確認                                ← Discord
+5. /nemuri で動作確認                              ← Discord
 ```
 
 ### ツールバージョン
